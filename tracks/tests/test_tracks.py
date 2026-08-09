@@ -87,3 +87,40 @@ class TrackTests(TestCase):
         self.assertEqual(response.status_code, 200)
         self.assertContains(response, "Не удалось разобрать GPX-файл")
         self.assertEqual(Track.objects.count(), 0)
+
+    def test_upload_requires_login(self):
+        response = self.client.get(reverse("tracks:upload"))
+
+        self.assertRedirects(response, f"{reverse('login')}?next={reverse('tracks:upload')}")
+
+    def test_authenticated_user_can_upload_track(self):
+        user = get_user_model().objects.create_user("rider", password="password")
+        self.client.force_login(user)
+
+        response = self.client.post(
+            reverse("tracks:upload"),
+            {
+                "name": "Поход выходного дня",
+                "description": "Тестовое описание",
+                "gpx_file": SimpleUploadedFile(
+                    "weekend.gpx", GPX, content_type="application/gpx+xml"
+                ),
+            },
+        )
+
+        track = Track.objects.get()
+        self.assertRedirects(response, track.get_absolute_url(), fetch_redirect_response=False)
+        self.assertEqual(track.owner, user)
+        self.assertEqual(track.name, "Поход выходного дня")
+
+    def test_upload_page_contains_only_public_fields(self):
+        user = get_user_model().objects.create_user("rider", password="password")
+        self.client.force_login(user)
+
+        response = self.client.get(reverse("tracks:upload"))
+
+        self.assertContains(response, 'name="name"')
+        self.assertContains(response, 'name="description"')
+        self.assertContains(response, 'name="gpx_file"')
+        self.assertNotContains(response, 'name="owner"')
+        self.assertNotContains(response, 'name="public_id"')

@@ -1,0 +1,29 @@
+{% extends "base.html" %}
+
+{% block title %}Вход — RPL{% endblock %}
+
+{% block content %}
+<div class="row justify-content-center">
+  <div class="col-sm-9 col-md-6 col-lg-4">
+    <div class="card border-0 shadow-sm">
+      <div class="card-body p-4">
+        <h1 class="h3 mb-4">Вход в RPL</h1>
+        {% if form.errors %}<div class="alert alert-danger">Неверное имя пользователя или пароль.</div>{% endif %}
+        <form method="post">
+          {% csrf_token %}
+          <input type="hidden" name="next" value="{{ next }}">
+          <div class="mb-3">
+            <label class="form-label" for="{{ form.username.id_for_label }}">Имя пользователя</label>
+            <input class="form-control" type="text" name="username" autocomplete="username" autofocus required id="{{ form.username.id_for_label }}">
+          </div>
+          <div class="mb-4">
+            <label class="form-label" for="{{ form.password.id_for_label }}">Пароль</label>
+            <input class="form-control" type="password" name="password" autocomplete="current-password" required id="{{ form.password.id_for_label }}">
+          </div>
+          <button class="btn btn-primary w-100" type="submit">Войти</button>
+        </form>
+      </div>
+    </div>
+  </div>
+</div>
+{% endblock %}

@@ -8,7 +8,11 @@
     <h1 class="h2 mb-1">GPX-треки</h1>
     <p class="text-secondary mb-0">Маршруты, загруженные в RPL</p>
   </div>
-  {% if user.is_staff %}<a class="btn btn-primary" href="{% url 'admin:tracks_track_add' %}">Загрузить GPX</a>{% endif %}
+  {% if user.is_authenticated %}
+    <a class="btn btn-primary" href="{% url 'tracks:upload' %}">Загрузить GPX</a>
+  {% else %}
+    <a class="btn btn-outline-primary" href="{% url 'login' %}?next={% url 'tracks:upload' %}">Войти для загрузки</a>
+  {% endif %}
 </div>
 
 {% if tracks %}
@@ -32,7 +36,7 @@
 {% else %}
   <div class="empty-state text-center bg-white border rounded-3 p-5">
     <h2 class="h4">Треков пока нет</h2>
-    <p class="text-secondary mb-0">Загрузите первый GPX-файл через панель администратора.</p>
+    <p class="text-secondary mb-0">После входа загрузите первый GPX-файл.</p>
   </div>
 {% endif %}
 {% endblock %}

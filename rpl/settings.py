@@ -114,5 +114,9 @@ MEDIA_ROOT = BASE_DIR / "media"
 
 DEFAULT_AUTO_FIELD = "django.db.models.BigAutoField"
 
+LOGIN_URL = "login"
+LOGIN_REDIRECT_URL = "tracks:list"
+LOGOUT_REDIRECT_URL = "tracks:list"
+
 OSM_TILE_URL = os.getenv("OSM_TILE_URL", "https://tile.openstreetmap.org/{z}/{x}/{y}.png")
 OSM_ATTRIBUTION = os.getenv("OSM_ATTRIBUTION", "&copy; OpenStreetMap contributors")

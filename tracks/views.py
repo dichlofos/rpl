@@ -1,13 +1,31 @@
 from django.conf import settings
+from django.contrib import messages
+from django.contrib.auth.decorators import login_required
 from django.http import JsonResponse
-from django.shortcuts import get_object_or_404, render
+from django.shortcuts import get_object_or_404, redirect, render
 from django.views.decorators.cache import cache_control
 
+from .forms import TrackUploadForm
 from .models import Track
 
 
 def track_list(request):
     return render(request, "tracks/track_list.html", {"tracks": Track.objects.all()})
+
+
+@login_required
+def track_upload(request):
+    if request.method == "POST":
+        form = TrackUploadForm(request.POST, request.FILES)
+        if form.is_valid():
+            track = form.save(commit=False)
+            track.owner = request.user
+            track.save()
+            messages.success(request, "Трек успешно загружен.")
+            return redirect(track)
+    else:
+        form = TrackUploadForm()
+    return render(request, "tracks/track_upload.html", {"form": form})
 
 
 def track_detail(request, public_id):

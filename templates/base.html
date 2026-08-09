@@ -11,12 +11,24 @@
 </head>
 <body class="bg-body-tertiary">
   <nav class="navbar navbar-expand bg-dark" data-bs-theme="dark">
-    <div class="container">
+    <div class="container gap-3">
       <a class="navbar-brand fw-semibold" href="{% url 'tracks:list' %}">RPL</a>
-      <span class="navbar-text d-none d-sm-inline">Route Planner</span>
+      <span class="navbar-text d-none d-sm-inline me-auto">Route Planner</span>
+      {% if user.is_authenticated %}
+        <span class="navbar-text d-none d-md-inline">{{ user.username }}</span>
+        <form action="{% url 'logout' %}" method="post">
+          {% csrf_token %}
+          <button class="btn btn-sm btn-outline-light" type="submit">Выйти</button>
+        </form>
+      {% else %}
+        <a class="btn btn-sm btn-outline-light" href="{% url 'login' %}">Войти</a>
+      {% endif %}
     </div>
   </nav>
   <main class="container py-4">
+    {% for message in messages %}
+      <div class="alert alert-{{ message.tags|default:'info' }}" role="alert">{{ message }}</div>
+    {% endfor %}
     {% block content %}{% endblock %}
   </main>
   {% block scripts %}{% endblock %}
