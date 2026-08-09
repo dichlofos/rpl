@@ -38,6 +38,11 @@ class TrackTests(TestCase):
         self.assertGreater(track.distance_m, 1000)
         self.assertEqual(track.min_elevation_m, 120)
         self.assertEqual(track.max_elevation_m, 135)
+        self.assertRegex(
+            track.gpx_file.name,
+            r"^tracks/[0-9a-f]{3}/[0-9a-f]{3}/[0-9a-f]{32}\.gpx$",
+        )
+        self.assertNotIn("route", track.gpx_file.name)
 
     def test_invalid_gpx_is_rejected(self):
         track = Track(gpx_file=SimpleUploadedFile("broken.gpx", b"not xml"))

@@ -11,6 +11,11 @@ from django.urls import reverse
 from .services import InvalidGPX, parse_gpx
 
 
+def anonymized_gpx_path(instance, _filename):
+    token = uuid.uuid4().hex
+    return f"tracks/{token[:3]}/{token[3:6]}/{token}.gpx"
+
+
 class Track(models.Model):
     name = models.CharField("название", max_length=200, blank=True)
     public_id = models.UUIDField(
@@ -19,7 +24,7 @@ class Track(models.Model):
     description = models.TextField("описание", blank=True)
     gpx_file = models.FileField(
         "GPX-файл",
-        upload_to="tracks/%Y/%m/",
+        upload_to=anonymized_gpx_path,
         validators=[FileExtensionValidator(["gpx"])],
     )
     owner = models.ForeignKey(
@@ -57,11 +62,10 @@ class Track(models.Model):
     def get_absolute_url(self):
         return reverse("tracks:detail", kwargs={"public_id": self.public_id})
 
-    def _file_changed(self):
+    def _stored_file_name(self):
         if not self.pk:
-            return True
-        old_name = type(self).objects.filter(pk=self.pk).values_list("gpx_file", flat=True).first()
-        return old_name != self.gpx_file.name
+            return ""
+        return type(self).objects.filter(pk=self.pk).values_list("gpx_file", flat=True).first()
 
     def _parse_file(self):
         should_close = self.gpx_file._committed
@@ -98,9 +102,13 @@ class Track(models.Model):
             setattr(self, field, getattr(parsed, field))
 
     def save(self, *args, **kwargs):
-        if self.gpx_file and self._file_changed():
+        old_file_name = self._stored_file_name()
+        file_changed = self.gpx_file and old_file_name != self.gpx_file.name
+        if file_changed:
             self._parse_file()
         super().save(*args, **kwargs)
+        if old_file_name and old_file_name != self.gpx_file.name:
+            self.gpx_file.storage.delete(old_file_name)
 
     @property
     def distance_km(self):
