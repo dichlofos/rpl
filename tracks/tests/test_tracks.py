@@ -1,4 +1,5 @@
 import tempfile
+import uuid
 
 from django.contrib.auth import get_user_model
 from django.core.exceptions import ValidationError
@@ -30,7 +31,7 @@ class TrackTests(TestCase):
         track = self.make_track()
 
         self.assertEqual(track.name, "Test route")
-        self.assertEqual(track.slug, "test-route")
+        self.assertIsInstance(track.public_id, uuid.UUID)
         self.assertEqual(track.points_count, 3)
         self.assertEqual(track.geojson["geometry"]["type"], "LineString")
         self.assertEqual(track.duration_s, 600)
@@ -56,19 +57,18 @@ class TrackTests(TestCase):
 
         list_response = self.client.get(reverse("tracks:list"))
         detail_response = self.client.get(track.get_absolute_url())
-        geojson_response = self.client.get(reverse("tracks:geojson", args=[track.slug]))
+        geojson_response = self.client.get(reverse("tracks:geojson", args=[track.public_id]))
 
         self.assertContains(list_response, "Test route")
         self.assertContains(detail_response, "track-map")
         self.assertEqual(geojson_response.status_code, 200)
         self.assertEqual(geojson_response.json()["properties"]["name"], "Test route")
 
-    def test_duplicate_names_get_unique_slugs(self):
+    def test_duplicate_names_get_unique_public_ids(self):
         first = self.make_track("Один маршрут")
         second = self.make_track("Один маршрут")
 
-        self.assertEqual(first.slug, "один-маршрут")
-        self.assertEqual(second.slug, "один-маршрут-2")
+        self.assertNotEqual(first.public_id, second.public_id)
 
     def test_admin_reports_invalid_gpx_as_form_error(self):
         user = get_user_model().objects.create_superuser("admin", "admin@example.test", "password")
@@ -79,7 +79,6 @@ class TrackTests(TestCase):
             {
                 "name": "Broken",
                 "description": "",
-                "slug": "",
                 "owner": "",
                 "gpx_file": SimpleUploadedFile("broken.gpx", b"not xml"),
             },

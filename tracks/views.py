@@ -10,8 +10,8 @@ def track_list(request):
     return render(request, "tracks/track_list.html", {"tracks": Track.objects.all()})
 
 
-def track_detail(request, slug):
-    track = get_object_or_404(Track, slug=slug)
+def track_detail(request, public_id):
+    track = get_object_or_404(Track, public_id=public_id)
     return render(
         request,
         "tracks/track_detail.html",
@@ -24,7 +24,7 @@ def track_detail(request, slug):
 
 
 @cache_control(public=True, max_age=3600)
-def track_geojson(request, slug):
-    track = get_object_or_404(Track, slug=slug)
+def track_geojson(request, public_id):
+    track = get_object_or_404(Track, public_id=public_id)
     feature = {**track.geojson, "properties": {"name": track.name}}
     return JsonResponse(feature)

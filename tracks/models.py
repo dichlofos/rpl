@@ -1,3 +1,4 @@
+import uuid
 from pathlib import Path
 from typing import ClassVar
 
@@ -6,14 +7,15 @@ from django.core.exceptions import ValidationError
 from django.core.validators import FileExtensionValidator
 from django.db import models
 from django.urls import reverse
-from django.utils.text import slugify
 
 from .services import InvalidGPX, parse_gpx
 
 
 class Track(models.Model):
     name = models.CharField("название", max_length=200, blank=True)
-    slug = models.SlugField("идентификатор", max_length=220, unique=True, blank=True)
+    public_id = models.UUIDField(
+        "публичный идентификатор", default=uuid.uuid4, unique=True, editable=False
+    )
     description = models.TextField("описание", blank=True)
     gpx_file = models.FileField(
         "GPX-файл",
@@ -53,7 +55,7 @@ class Track(models.Model):
         return self.name or Path(self.gpx_file.name).stem
 
     def get_absolute_url(self):
-        return reverse("tracks:detail", kwargs={"slug": self.slug})
+        return reverse("tracks:detail", kwargs={"public_id": self.public_id})
 
     def _file_changed(self):
         if not self.pk:
@@ -95,21 +97,9 @@ class Track(models.Model):
         ):
             setattr(self, field, getattr(parsed, field))
 
-    def _make_unique_slug(self):
-        base = slugify(self.name, allow_unicode=True) or "track"
-        candidate = base
-        number = 2
-        matches = type(self).objects.exclude(pk=self.pk)
-        while matches.filter(slug=candidate).exists():
-            candidate = f"{base}-{number}"
-            number += 1
-        return candidate
-
     def save(self, *args, **kwargs):
         if self.gpx_file and self._file_changed():
             self._parse_file()
-        if not self.slug:
-            self.slug = self._make_unique_slug()
         super().save(*args, **kwargs)
 
     @property
