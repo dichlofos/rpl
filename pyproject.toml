@@ -19,6 +19,7 @@ dev = [
   "pytest-django>=4.9",
   "ruff>=0.9",
 ]
+geo = ["overturemaps>=1.0,<2"]
 
 [tool.pytest.ini_options]
 DJANGO_SETTINGS_MODULE = "rpl.settings"
@@ -32,4 +33,4 @@ target-version = "py310"
 "*/migrations/*.py" = ["E501", "RUF012"]
 
 [tool.setuptools.packages.find]
-include = ["rpl*", "tracks*"]
+include = ["regions*", "rpl*", "tracks*"]

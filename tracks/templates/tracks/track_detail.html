@@ -22,6 +22,17 @@
   <aside class="col-lg-3">
     <h1 class="h3">{{ track.name }}</h1>
     {% if track.description %}<p class="text-secondary">{{ track.description }}</p>{% endif %}
+    {% if track.primary_regions %}
+      <h2 class="h6 text-uppercase text-secondary mt-4">Регионы</h2>
+      <ul class="list-group list-group-flush mb-3">
+        {% for link in track.primary_regions %}
+          <li class="list-group-item bg-transparent px-0 d-flex justify-content-between gap-2">
+            <span>{{ link.region.name }}</span>
+            <span class="text-secondary">{{ link.coverage_percent|floatformat:0 }}%</span>
+          </li>
+        {% endfor %}
+      </ul>
+    {% endif %}
     <dl class="track-stats">
       <div><dt>Дистанция</dt><dd>{{ track.distance_km|floatformat:1 }} км</dd></div>
       <div><dt>Набор</dt><dd>{{ track.elevation_gain_m|floatformat:0 }} м</dd></div>

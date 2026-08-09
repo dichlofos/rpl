@@ -26,7 +26,7 @@ def database_config(url):
     parsed = urlparse(url)
     if parsed.scheme in {"postgres", "postgresql"}:
         return {
-            "ENGINE": "django.db.backends.postgresql",
+            "ENGINE": "django.contrib.gis.db.backends.postgis",
             "NAME": unquote(parsed.path.lstrip("/")),
             "USER": unquote(parsed.username or ""),
             "PASSWORD": unquote(parsed.password or ""),
@@ -59,6 +59,8 @@ INSTALLED_APPS = [
     "django.contrib.sessions",
     "django.contrib.messages",
     "django.contrib.staticfiles",
+    "django.contrib.gis",
+    "regions",
     "tracks",
 ]
 

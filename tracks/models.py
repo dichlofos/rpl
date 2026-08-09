@@ -1,11 +1,13 @@
+import json
 import uuid
 from pathlib import Path
 from typing import ClassVar
 
 from django.conf import settings
+from django.contrib.gis.db import models
+from django.contrib.gis.geos import GEOSGeometry, LineString, MultiLineString
 from django.core.exceptions import ValidationError
 from django.core.validators import FileExtensionValidator
-from django.db import models
 from django.urls import reverse
 
 from .services import InvalidGPX, parse_gpx
@@ -50,6 +52,7 @@ class Track(models.Model):
     max_latitude = models.FloatField(null=True, editable=False)
     max_longitude = models.FloatField(null=True, editable=False)
     geojson = models.JSONField(default=dict, editable=False)
+    geometry = models.MultiLineStringField("геометрия", srid=4326, null=True, editable=False)
 
     class Meta:
         ordering: ClassVar[list[str]] = ["-uploaded_at"]
@@ -100,6 +103,19 @@ class Track(models.Model):
             "max_longitude",
         ):
             setattr(self, field, getattr(parsed, field))
+        geometry_data = parsed.geojson["geometry"]
+        coordinates = geometry_data["coordinates"]
+        if geometry_data["type"] == "LineString":
+            coordinates = [[point[0], point[1]] for point in coordinates]
+        else:
+            coordinates = [[[point[0], point[1]] for point in segment] for segment in coordinates]
+        geometry = GEOSGeometry(
+            json.dumps({"type": geometry_data["type"], "coordinates": coordinates}),
+            srid=4326,
+        )
+        if isinstance(geometry, LineString):
+            geometry = MultiLineString(geometry, srid=4326)
+        self.geometry = geometry
 
     def save(self, *args, **kwargs):
         old_file_name = self._stored_file_name()
@@ -109,6 +125,10 @@ class Track(models.Model):
         super().save(*args, **kwargs)
         if old_file_name and old_file_name != self.gpx_file.name:
             self.gpx_file.storage.delete(old_file_name)
+        if file_changed:
+            from regions.services import classify_track
+
+            classify_track(self)
 
     @property
     def distance_km(self):

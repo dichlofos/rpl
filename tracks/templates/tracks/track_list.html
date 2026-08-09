@@ -23,6 +23,13 @@
           <div class="card-body">
             <h2 class="h5 text-body">{{ track.name }}</h2>
             <p class="text-secondary small mb-3">{{ track.description|default:"Без описания"|truncatechars:120 }}</p>
+            {% if track.primary_regions %}
+              <div class="d-flex flex-wrap gap-1 mb-3">
+                {% for link in track.primary_regions %}
+                  <span class="badge text-bg-light border text-secondary">{{ link.region.name }}</span>
+                {% endfor %}
+              </div>
+            {% endif %}
             <div class="d-flex gap-3 text-body">
               <span><strong>{{ track.distance_km|floatformat:1 }}</strong> км</span>
               <span><strong>{{ track.elevation_gain_m|floatformat:0 }}</strong> м ↑</span>

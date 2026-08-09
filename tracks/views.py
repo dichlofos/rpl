@@ -1,16 +1,30 @@
 from django.conf import settings
 from django.contrib import messages
 from django.contrib.auth.decorators import login_required
+from django.db.models import Prefetch
 from django.http import JsonResponse
 from django.shortcuts import get_object_or_404, redirect, render
 from django.views.decorators.cache import cache_control
+
+from regions.models import TrackRegion
 
 from .forms import TrackUploadForm
 from .models import Track
 
 
+def with_primary_regions(queryset):
+    primary_regions = TrackRegion.objects.filter(is_primary=True).select_related("region")
+    return queryset.prefetch_related(
+        Prefetch("region_links", queryset=primary_regions, to_attr="primary_regions")
+    )
+
+
 def track_list(request):
-    return render(request, "tracks/track_list.html", {"tracks": Track.objects.all()})
+    return render(
+        request,
+        "tracks/track_list.html",
+        {"tracks": with_primary_regions(Track.objects.all())},
+    )
 
 
 @login_required
@@ -29,7 +43,7 @@ def track_upload(request):
 
 
 def track_detail(request, public_id):
-    track = get_object_or_404(Track, public_id=public_id)
+    track = get_object_or_404(with_primary_regions(Track.objects.all()), public_id=public_id)
     return render(
         request,
         "tracks/track_detail.html",

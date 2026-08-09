@@ -26,6 +26,7 @@ class TrackAdmin(admin.ModelAdmin):
         "max_latitude",
         "max_longitude",
         "geojson",
+        "geometry",
     )
 
     @admin.display(description="Дистанция, км", ordering="distance_m")
