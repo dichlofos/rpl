@@ -1,0 +1,38 @@
+{% extends "base.html" %}
+
+{% block title %}Треки — RPL{% endblock %}
+
+{% block content %}
+<div class="d-flex justify-content-between align-items-center mb-4">
+  <div>
+    <h1 class="h2 mb-1">GPX-треки</h1>
+    <p class="text-secondary mb-0">Маршруты, загруженные в RPL</p>
+  </div>
+  {% if user.is_staff %}<a class="btn btn-primary" href="{% url 'admin:tracks_track_add' %}">Загрузить GPX</a>{% endif %}
+</div>
+
+{% if tracks %}
+  <div class="row g-3">
+    {% for track in tracks %}
+      <div class="col-md-6 col-lg-4">
+        <a class="card track-card h-100 text-decoration-none" href="{{ track.get_absolute_url }}">
+          <div class="card-body">
+            <h2 class="h5 text-body">{{ track.name }}</h2>
+            <p class="text-secondary small mb-3">{{ track.description|default:"Без описания"|truncatechars:120 }}</p>
+            <div class="d-flex gap-3 text-body">
+              <span><strong>{{ track.distance_km|floatformat:1 }}</strong> км</span>
+              <span><strong>{{ track.elevation_gain_m|floatformat:0 }}</strong> м ↑</span>
+              <span><strong>{{ track.points_count }}</strong> точек</span>
+            </div>
+          </div>
+        </a>
+      </div>
+    {% endfor %}
+  </div>
+{% else %}
+  <div class="empty-state text-center bg-white border rounded-3 p-5">
+    <h2 class="h4">Треков пока нет</h2>
+    <p class="text-secondary mb-0">Загрузите первый GPX-файл через панель администратора.</p>
+  </div>
+{% endif %}
+{% endblock %}

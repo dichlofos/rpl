@@ -1,0 +1,35 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "rpl"
+version = "0.1.0"
+description = "Route Planner — GPX track storage and viewer"
+requires-python = ">=3.10"
+dependencies = [
+  "Django>=5.2,<5.3",
+  "gpxpy>=1.5",
+  "psycopg[binary]>=3.2",
+]
+
+[project.optional-dependencies]
+dev = [
+  "pytest>=8.3",
+  "pytest-django>=4.9",
+  "ruff>=0.9",
+]
+
+[tool.pytest.ini_options]
+DJANGO_SETTINGS_MODULE = "rpl.settings"
+python_files = ["test_*.py", "tests.py"]
+
+[tool.ruff]
+line-length = 100
+target-version = "py310"
+
+[tool.ruff.lint.per-file-ignores]
+"*/migrations/*.py" = ["E501", "RUF012"]
+
+[tool.setuptools.packages.find]
+include = ["rpl*", "tracks*"]
