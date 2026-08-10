@@ -65,6 +65,9 @@ class TrackTests(TestCase):
         geojson_response = self.client.get(reverse("tracks:geojson", args=[track.public_id]))
 
         self.assertContains(list_response, "Test route")
+        self.assertContains(list_response, 'data-track-view="cards"')
+        self.assertContains(list_response, 'data-track-view="table"')
+        self.assertContains(list_response, "Дистанция")
         self.assertContains(detail_response, "track-map")
         self.assertEqual(geojson_response.status_code, 200)
         self.assertEqual(geojson_response.json()["properties"]["name"], "Test route")

@@ -1,9 +1,10 @@
 {% extends "base.html" %}
+{% load static %}
 
 {% block title %}Треки — RPL{% endblock %}
 
 {% block content %}
-<div class="d-flex justify-content-between align-items-center mb-4">
+<div class="d-flex flex-wrap justify-content-between align-items-center gap-3 mb-4">
   <div>
     <h1 class="h2 mb-1">GPX-треки</h1>
     <p class="text-secondary mb-0">Маршруты, загруженные в RPL</p>
@@ -16,7 +17,18 @@
 </div>
 
 {% if tracks %}
-  <div class="row g-3">
+  <div class="d-flex justify-content-end mb-3">
+    <div class="btn-group" role="group" aria-label="Вид списка треков">
+      <button class="btn btn-outline-secondary active" type="button" data-track-view="cards" aria-pressed="true">
+        Плитки
+      </button>
+      <button class="btn btn-outline-secondary" type="button" data-track-view="table" aria-pressed="false">
+        Таблица
+      </button>
+    </div>
+  </div>
+
+  <div class="row g-3" data-track-view-panel="cards">
     {% for track in tracks %}
       <div class="col-md-6 col-lg-4">
         <a class="card track-card h-100 text-decoration-none" href="{{ track.get_absolute_url }}">
@@ -40,10 +52,53 @@
       </div>
     {% endfor %}
   </div>
+
+  <div class="table-responsive bg-white border rounded-3" data-track-view-panel="table" hidden>
+    <table class="table table-hover align-middle mb-0 track-table">
+      <thead>
+        <tr>
+          <th scope="col">Название</th>
+          <th scope="col">Регионы</th>
+          <th scope="col" class="text-end text-nowrap">Дистанция</th>
+          <th scope="col" class="text-end text-nowrap">Набор</th>
+          <th scope="col" class="text-end">Время</th>
+          <th scope="col" class="text-end">Точки</th>
+          <th scope="col" class="text-end">Загружен</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for track in tracks %}
+          <tr>
+            <th scope="row">
+              <a class="text-body text-decoration-none stretched-link" href="{{ track.get_absolute_url }}">
+                {{ track.name }}
+              </a>
+            </th>
+            <td>
+              {% for link in track.primary_regions %}
+                <span class="badge text-bg-light border text-secondary">{{ link.region.name }}</span>
+              {% empty %}
+                <span class="text-secondary">—</span>
+              {% endfor %}
+            </td>
+            <td class="text-end text-nowrap">{{ track.distance_km|floatformat:1 }} км</td>
+            <td class="text-end text-nowrap">{{ track.elevation_gain_m|floatformat:0 }} м</td>
+            <td class="text-end text-nowrap">{{ track.duration_display }}</td>
+            <td class="text-end">{{ track.points_count }}</td>
+            <td class="text-end text-nowrap">{{ track.uploaded_at|date:"d.m.Y" }}</td>
+          </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
 {% else %}
   <div class="empty-state text-center bg-white border rounded-3 p-5">
     <h2 class="h4">Треков пока нет</h2>
     <p class="text-secondary mb-0">После входа загрузите первый GPX-файл.</p>
   </div>
 {% endif %}
+{% endblock %}
+
+{% block scripts %}
+  {% if tracks %}<script src="{% static 'js/track-list.js' %}" defer></script>{% endif %}
 {% endblock %}
