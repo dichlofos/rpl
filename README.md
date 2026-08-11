@@ -5,7 +5,26 @@ OpenStreetMap.
 
 ## Быстрый запуск
 
-Требуется Python 3.10 или новее; рекомендуемая версия — Python 3.13.
+Требуются Python 3.10 или новее и PostgreSQL с PostGIS; рекомендуемая
+версия Python — 3.13. SQLite не поддерживается, так как модели проекта
+используют GIS-поля.
+
+На Debian/Ubuntu системные зависимости можно установить готовым скриптом:
+
+```bash
+./scripts/install-system-deps.sh
+```
+
+Создайте пользователя, базу и включите PostGIS в рабочей и тестовой базах:
+
+```bash
+sudo -u postgres psql -c "CREATE ROLE rpl LOGIN PASSWORD 'password';"
+sudo -u postgres createdb --owner=rpl rpl
+sudo -u postgres psql -d rpl -c 'CREATE EXTENSION IF NOT EXISTS postgis;'
+sudo -u postgres psql -d template1 -c 'CREATE EXTENSION IF NOT EXISTS postgis;'
+```
+
+Затем установите и запустите проект:
 
 ```bash
 python3 -m venv .venv
@@ -16,10 +35,6 @@ python manage.py migrate
 python manage.py createsuperuser
 python manage.py runserver
 ```
-
-По умолчанию пример `.env` использует SQLite, чтобы приложение можно было сразу
-посмотреть. Для основной разработки создайте пользователя и базу PostgreSQL и
-замените `DATABASE_URL` на строку из `.env.example`.
 
 Создайте пользователя через `/admin/`, войдите через `/accounts/login/` и
 загрузите трек на `/tracks/upload/`. Загруженный GPX разбирается при сохранении;
@@ -42,11 +57,10 @@ make run
 
 ## Географические регионы
 
-Для классификации треков используется PostGIS и Overture Maps Divisions. GIS-
-зависимости устанавливаются отдельно:
+Для классификации треков используются PostGIS и Overture Maps Divisions. Клиент Overture
+устанавливается дополнительно:
 
 ```bash
-./scripts/install-system-deps.sh
 python -m pip install -e '.[dev,geo]'
 ```
 
@@ -55,17 +69,6 @@ PostgreSQL. При необходимости её можно указать я�
 
 ```bash
 POSTGRESQL_MAJOR=14 ./scripts/install-system-deps.sh
-```
-
-После создания базы включите PostGIS в рабочей базе и в шаблоне, из которого
-Django создаёт тестовые базы:
-
-```bash
-sudo -u postgres psql -d rpl \
-  -c 'CREATE EXTENSION IF NOT EXISTS postgis;'
-sudo -u postgres psql -d template1 \
-  -c 'CREATE EXTENSION IF NOT EXISTS postgis;'
-python manage.py migrate
 ```
 
 Официальный клиент Overture может скачать ограниченный срез и сразу передать его

@@ -24,24 +24,21 @@ def env_bool(name, default=False):
 
 def database_config(url):
     parsed = urlparse(url)
-    if parsed.scheme in {"postgres", "postgresql"}:
-        return {
-            "ENGINE": "django.contrib.gis.db.backends.postgis",
-            "NAME": unquote(parsed.path.lstrip("/")),
-            "USER": unquote(parsed.username or ""),
-            "PASSWORD": unquote(parsed.password or ""),
-            "HOST": parsed.hostname or "",
-            "PORT": str(parsed.port or ""),
-            "CONN_MAX_AGE": 60,
-        }
+    if not url:
+        raise ValueError("DATABASE_URL is required and must point to a PostgreSQL database with PostGIS")
     if parsed.scheme == "sqlite":
-        raw_path = unquote(parsed.path)
-        path = raw_path[1:] if raw_path.startswith("//") else BASE_DIR / raw_path.lstrip("/")
-        return {
-            "ENGINE": "django.db.backends.sqlite3",
-            "NAME": path if path else BASE_DIR / "db.sqlite3",
-        }
-    raise ValueError("DATABASE_URL must use postgresql:// or sqlite://")
+        raise ValueError("SQLite is not supported; DATABASE_URL must use postgresql:// with PostGIS")
+    if parsed.scheme not in {"postgres", "postgresql"}:
+        raise ValueError("DATABASE_URL must use postgresql:// with PostGIS")
+    return {
+        "ENGINE": "django.contrib.gis.db.backends.postgis",
+        "NAME": unquote(parsed.path.lstrip("/")),
+        "USER": unquote(parsed.username or ""),
+        "PASSWORD": unquote(parsed.password or ""),
+        "HOST": parsed.hostname or "",
+        "PORT": str(parsed.port or ""),
+        "CONN_MAX_AGE": 60,
+    }
 
 
 load_dotenv(BASE_DIR / ".env")
@@ -92,9 +89,7 @@ TEMPLATES = [
 WSGI_APPLICATION = "rpl.wsgi.application"
 ASGI_APPLICATION = "rpl.asgi.application"
 
-DATABASES = {
-    "default": database_config(os.getenv("DATABASE_URL", f"sqlite:///{BASE_DIR / 'db.sqlite3'}"))
-}
+DATABASES = {"default": database_config(os.getenv("DATABASE_URL", ""))}
 
 AUTH_PASSWORD_VALIDATORS = [
     {"NAME": "django.contrib.auth.password_validation.UserAttributeSimilarityValidator"},
