@@ -9,3 +9,7 @@ body { min-height: 100vh; }
 .track-stats dt { color: var(--bs-secondary-color); font-weight: 400; }
 .track-stats dd { margin: 0; font-weight: 600; text-align: right; }
 @media (max-width: 575.98px) { #track-map { min-height: 360px; height: 58vh; } }
+.track-point-marker { background: transparent; border: 0; }
+.track-point-marker span { display: block; width: 12px; height: 12px; border: 2px solid #fff; border-radius: 50%; background: #0d6efd; box-shadow: 0 0 0 1px #084298; }
+.track-point-marker.is-selected span { width: 16px; height: 16px; margin: -2px; background: #ffc107; box-shadow: 0 0 0 2px #664d03; }
+.leaflet-popup-content button { width: 100%; }

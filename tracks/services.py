@@ -1,6 +1,7 @@
 import re
 from dataclasses import dataclass
 from datetime import datetime
+from math import isfinite
 from pathlib import Path
 
 import gpxpy
@@ -102,3 +103,63 @@ def parse_gpx(content, filename="track.gpx"):
         max_latitude=max(latitudes),
         max_longitude=max(longitudes),
     )
+
+
+def edit_gpx(content, coordinates, start_index, end_index):
+    """Move and trim GPX track points while preserving their metadata."""
+    if not content or UNSAFE_XML.search(content):
+        raise InvalidGPX("Не удалось прочитать исходный GPX-файл.")
+    try:
+        gpx = gpxpy.parse(content)
+    except Exception as exc:
+        raise InvalidGPX("Не удалось прочитать исходный GPX-файл.") from exc
+
+    segments = [segment for track in gpx.tracks for segment in track.segments if segment.points]
+    points = [point for segment in segments for point in segment.points]
+    if (
+        not isinstance(start_index, int)
+        or isinstance(start_index, bool)
+        or not isinstance(end_index, int)
+        or isinstance(end_index, bool)
+        or start_index < 0
+        or end_index > len(points)
+        or start_index >= end_index
+    ):
+        raise InvalidGPX("Неверные границы обрезки трека.")
+    if not isinstance(coordinates, list) or len(coordinates) != end_index - start_index:
+        raise InvalidGPX("Число координат не совпадает с числом точек трека.")
+
+    for point, coordinate in zip(points[start_index:end_index], coordinates, strict=True):
+        if not isinstance(coordinate, list) or len(coordinate) != 2:
+            raise InvalidGPX("Каждая точка должна содержать долготу и широту.")
+        longitude, latitude = coordinate
+        if (
+            isinstance(longitude, bool)
+            or isinstance(latitude, bool)
+            or not isinstance(longitude, (int, float))
+            or not isinstance(latitude, (int, float))
+            or not isfinite(longitude)
+            or not isfinite(latitude)
+            or not -180 <= longitude <= 180
+            or not -90 <= latitude <= 90
+        ):
+            raise InvalidGPX("Координаты точки выходят за допустимые границы.")
+        point.longitude = longitude
+        point.latitude = latitude
+
+    offset = 0
+    retained_count = 0
+    for segment in segments:
+        segment_start = offset
+        segment_end = offset + len(segment.points)
+        kept_start = max(start_index, segment_start) - segment_start
+        kept_end = min(end_index, segment_end) - segment_start
+        segment.points = segment.points[max(kept_start, 0) : max(kept_end, 0)]
+        if len(segment.points) == 1:
+            raise InvalidGPX("После обрезки в сегменте должно остаться не менее двух точек.")
+        retained_count += len(segment.points)
+        offset = segment_end
+
+    if retained_count < 2:
+        raise InvalidGPX("В треке должно остаться не менее двух точек.")
+    return gpx.to_xml().encode("utf-8")

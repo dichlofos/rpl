@@ -12,6 +12,27 @@
 </nav>
 <div class="row g-4">
   <div class="col-lg-9">
+    {% if can_edit %}
+      <div id="track-editor"
+           class="track-editor d-flex flex-wrap align-items-center gap-2 mb-2"
+           data-edit-url="{% url 'tracks:edit' track.public_id %}">
+        {% csrf_token %}
+        <button class="btn btn-sm btn-outline-primary" type="button" data-editor-action="start">
+          Редактировать трек
+        </button>
+        <div class="btn-group d-none" role="group" data-editor-tools>
+          <button class="btn btn-sm btn-outline-secondary" type="button" data-editor-action="trim-before" disabled>
+            Отрезать до точки
+          </button>
+          <button class="btn btn-sm btn-outline-secondary" type="button" data-editor-action="trim-after" disabled>
+            Отрезать после точки
+          </button>
+        </div>
+        <button class="btn btn-sm btn-primary d-none" type="button" data-editor-action="save">Сохранить</button>
+        <button class="btn btn-sm btn-outline-secondary d-none" type="button" data-editor-action="cancel">Отмена</button>
+        <span class="small text-secondary d-none" data-editor-hint>Выберите или перетащите точку. Правый клик откроет меню.</span>
+      </div>
+    {% endif %}
     <div id="track-map"
          data-geojson-url="{% url 'tracks:geojson' track.public_id %}"
          data-tile-url="{{ tile_url }}"
@@ -34,11 +55,11 @@
       </ul>
     {% endif %}
     <dl class="track-stats">
-      <div><dt>Дистанция</dt><dd>{{ track.distance_km|floatformat:1 }} км</dd></div>
-      <div><dt>Набор</dt><dd>{{ track.elevation_gain_m|floatformat:0 }} м</dd></div>
-      <div><dt>Сброс</dt><dd>{{ track.elevation_loss_m|floatformat:0 }} м</dd></div>
-      <div><dt>Продолжительность</dt><dd>{{ track.duration_display }}</dd></div>
-      <div><dt>Точек</dt><dd>{{ track.points_count }}</dd></div>
+      <div><dt>Дистанция</dt><dd data-track-stat="distance_km">{{ track.distance_km|floatformat:1 }} км</dd></div>
+      <div><dt>Набор</dt><dd data-track-stat="elevation_gain_m">{{ track.elevation_gain_m|floatformat:0 }} м</dd></div>
+      <div><dt>Сброс</dt><dd data-track-stat="elevation_loss_m">{{ track.elevation_loss_m|floatformat:0 }} м</dd></div>
+      <div><dt>Продолжительность</dt><dd data-track-stat="duration">{{ track.duration_display }}</dd></div>
+      <div><dt>Точек</dt><dd data-track-stat="points_count">{{ track.points_count }}</dd></div>
     </dl>
   </aside>
 </div>
