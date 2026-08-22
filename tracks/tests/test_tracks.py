@@ -73,6 +73,19 @@ class TrackTests(TestCase):
         self.assertEqual(geojson_response.status_code, 200)
         self.assertEqual(geojson_response.json()["properties"]["name"], "Test route")
 
+    def test_track_can_be_downloaded_as_gpx(self):
+        track = self.make_track("Поход выходного дня")
+
+        detail_response = self.client.get(track.get_absolute_url())
+        response = self.client.get(reverse("tracks:download", args=[track.public_id]))
+
+        self.assertContains(detail_response, "Скачать GPX")
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response["Content-Type"], "application/gpx+xml")
+        self.assertIn("attachment;", response["Content-Disposition"])
+        self.assertIn(".gpx", response["Content-Disposition"])
+        self.assertEqual(b"".join(response.streaming_content), GPX)
+
     def test_owner_can_move_and_trim_track_points(self):
         owner = get_user_model().objects.create_user("owner", password="password")
         track = self.make_track()
@@ -103,6 +116,54 @@ class TrackTests(TestCase):
         self.assertEqual(track.started_at.isoformat(), "2026-08-09T08:05:00+00:00")
         self.assertEqual(track.duration_s, 300)
         self.assertEqual(response.json()["stats"]["points_count"], 2)
+
+    def test_owner_can_delete_non_contiguous_track_points(self):
+        owner = get_user_model().objects.create_user("owner", password="password")
+        track = self.make_track()
+        track.owner = owner
+        track.save(update_fields=["owner"])
+        self.client.force_login(owner)
+
+        response = self.client.post(
+            reverse("tracks:edit", args=[track.public_id]),
+            data=json.dumps(
+                {
+                    "retained_indices": [0, 2],
+                    "coordinates": [[37.61, 55.75], [37.63, 55.752]],
+                }
+            ),
+            content_type="application/json",
+        )
+
+        self.assertEqual(response.status_code, 200)
+        track.refresh_from_db()
+        self.assertEqual(track.points_count, 2)
+        self.assertEqual(track.geojson["geometry"]["coordinates"], [
+            [37.61, 55.75, 120.0],
+            [37.63, 55.752, 125.0],
+        ])
+        self.assertEqual(track.duration_s, 600)
+
+    def test_track_edit_rejects_unsorted_retained_indices(self):
+        owner = get_user_model().objects.create_user("owner", password="password")
+        track = self.make_track()
+        track.owner = owner
+        track.save(update_fields=["owner"])
+        self.client.force_login(owner)
+
+        response = self.client.post(
+            reverse("tracks:edit", args=[track.public_id]),
+            data=json.dumps(
+                {
+                    "retained_indices": [2, 0],
+                    "coordinates": [[37.63, 55.752], [37.61, 55.75]],
+                }
+            ),
+            content_type="application/json",
+        )
+
+        self.assertEqual(response.status_code, 400)
+        self.assertEqual(Track.objects.get(pk=track.pk).points_count, 3)
 
     def test_non_owner_cannot_edit_track(self):
         owner = get_user_model().objects.create_user("owner", password="password")
@@ -154,6 +215,7 @@ class TrackTests(TestCase):
 
         self.assertNotContains(anonymous_response, "track-editor")
         self.assertContains(owner_response, "track-editor")
+        self.assertContains(owner_response, "Сначала выберите точку на треке", count=2)
 
     def test_duplicate_names_get_unique_public_ids(self):
         first = self.make_track("Один маршрут")

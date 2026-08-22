@@ -6,8 +6,10 @@ from django.contrib import messages
 from django.contrib.auth.decorators import login_required
 from django.core.files.base import ContentFile
 from django.db.models import Prefetch
-from django.http import JsonResponse
+from django.http import FileResponse, JsonResponse
 from django.shortcuts import get_object_or_404, redirect, render
+from django.utils.text import slugify
+from django.views.decorators.http import require_GET
 
 from regions.models import TrackRegion
 
@@ -67,6 +69,18 @@ def track_geojson(request, public_id):
     return JsonResponse(feature)
 
 
+@require_GET
+def track_download(request, public_id):
+    track = get_object_or_404(Track, public_id=public_id)
+    filename = slugify(track.name, allow_unicode=True) or f"track-{track.public_id}"
+    return FileResponse(
+        track.gpx_file.open("rb"),
+        as_attachment=True,
+        filename=f"{filename}.gpx",
+        content_type="application/gpx+xml",
+    )
+
+
 @login_required
 def track_edit(request, public_id):
     if request.method != "POST":
@@ -83,6 +97,7 @@ def track_edit(request, public_id):
             payload.get("coordinates"),
             payload.get("start_index"),
             payload.get("end_index"),
+            payload.get("retained_indices"),
         )
     except (json.JSONDecodeError, AttributeError, InvalidGPX) as exc:
         message = str(exc) if isinstance(exc, InvalidGPX) else "Неверные данные редактирования."

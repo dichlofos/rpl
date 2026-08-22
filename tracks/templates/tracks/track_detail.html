@@ -21,16 +21,32 @@
           Редактировать трек
         </button>
         <div class="btn-group d-none" role="group" data-editor-tools>
-          <button class="btn btn-sm btn-outline-secondary" type="button" data-editor-action="trim-before" disabled>
-            Отрезать до точки
+          <span class="trim-action-tooltip" data-trim-tooltip title="Сначала выберите точку на треке">
+            <button class="btn btn-sm btn-outline-secondary" type="button" data-editor-action="trim-before" disabled>
+              Отрезать до точки
+            </button>
+          </span>
+          <span class="trim-action-tooltip" data-trim-tooltip title="Сначала выберите точку на треке">
+            <button class="btn btn-sm btn-outline-secondary" type="button" data-editor-action="trim-after" disabled>
+              Отрезать после точки
+            </button>
+          </span>
+          <button class="btn btn-sm btn-outline-secondary" type="button" data-editor-action="select-area">
+            Выбрать область
           </button>
-          <button class="btn btn-sm btn-outline-secondary" type="button" data-editor-action="trim-after" disabled>
-            Отрезать после точки
+        </div>
+        <div class="btn-group d-none" role="group" data-area-tools>
+          <button class="btn btn-sm btn-outline-danger" type="button" data-editor-action="delete-inside">
+            Удалить внутри
+          </button>
+          <button class="btn btn-sm btn-outline-danger" type="button" data-editor-action="delete-outside">
+            Удалить снаружи
           </button>
         </div>
         <button class="btn btn-sm btn-primary d-none" type="button" data-editor-action="save">Сохранить</button>
         <button class="btn btn-sm btn-outline-secondary d-none" type="button" data-editor-action="cancel">Отмена</button>
         <span class="small text-secondary d-none" data-editor-hint>Выберите или перетащите точку. Правый клик откроет меню.</span>
+        <span class="small text-secondary d-none" data-area-summary></span>
       </div>
     {% endif %}
     <div id="track-map"
@@ -43,6 +59,11 @@
   <aside class="col-lg-3">
     <h1 class="h3">{{ track.name }}</h1>
     {% if track.description %}<p class="text-secondary">{{ track.description }}</p>{% endif %}
+    <a class="btn btn-outline-primary w-100 mb-3"
+       href="{% url 'tracks:download' track.public_id %}"
+       download>
+      Скачать GPX
+    </a>
     {% if track.primary_regions %}
       <h2 class="h6 text-uppercase text-secondary mt-4">Регионы</h2>
       <ul class="list-group list-group-flush mb-3">

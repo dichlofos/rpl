@@ -105,7 +105,7 @@ def parse_gpx(content, filename="track.gpx"):
     )
 
 
-def edit_gpx(content, coordinates, start_index, end_index):
+def edit_gpx(content, coordinates, start_index=None, end_index=None, retained_indices=None):
     """Move and trim GPX track points while preserving their metadata."""
     if not content or UNSAFE_XML.search(content):
         raise InvalidGPX("Не удалось прочитать исходный GPX-файл.")
@@ -116,20 +116,33 @@ def edit_gpx(content, coordinates, start_index, end_index):
 
     segments = [segment for track in gpx.tracks for segment in track.segments if segment.points]
     points = [point for segment in segments for point in segment.points]
-    if (
-        not isinstance(start_index, int)
-        or isinstance(start_index, bool)
-        or not isinstance(end_index, int)
-        or isinstance(end_index, bool)
-        or start_index < 0
-        or end_index > len(points)
-        or start_index >= end_index
+    if retained_indices is None:
+        if (
+            not isinstance(start_index, int)
+            or isinstance(start_index, bool)
+            or not isinstance(end_index, int)
+            or isinstance(end_index, bool)
+            or start_index < 0
+            or end_index > len(points)
+            or start_index >= end_index
+        ):
+            raise InvalidGPX("Неверные границы обрезки трека.")
+        retained_indices = list(range(start_index, end_index))
+    elif (
+        not isinstance(retained_indices, list)
+        or len(retained_indices) < 2
+        or any(
+            not isinstance(index, int) or isinstance(index, bool) or not 0 <= index < len(points)
+            for index in retained_indices
+        )
+        or retained_indices != sorted(set(retained_indices))
     ):
-        raise InvalidGPX("Неверные границы обрезки трека.")
-    if not isinstance(coordinates, list) or len(coordinates) != end_index - start_index:
+        raise InvalidGPX("Неверный список точек трека.")
+
+    if not isinstance(coordinates, list) or len(coordinates) != len(retained_indices):
         raise InvalidGPX("Число координат не совпадает с числом точек трека.")
 
-    for point, coordinate in zip(points[start_index:end_index], coordinates, strict=True):
+    for index, coordinate in zip(retained_indices, coordinates, strict=True):
         if not isinstance(coordinate, list) or len(coordinate) != 2:
             raise InvalidGPX("Каждая точка должна содержать долготу и широту.")
         longitude, latitude = coordinate
@@ -144,21 +157,22 @@ def edit_gpx(content, coordinates, start_index, end_index):
             or not -90 <= latitude <= 90
         ):
             raise InvalidGPX("Координаты точки выходят за допустимые границы.")
-        point.longitude = longitude
-        point.latitude = latitude
+        points[index].longitude = longitude
+        points[index].latitude = latitude
 
     offset = 0
     retained_count = 0
+    retained_set = set(retained_indices)
     for segment in segments:
-        segment_start = offset
-        segment_end = offset + len(segment.points)
-        kept_start = max(start_index, segment_start) - segment_start
-        kept_end = min(end_index, segment_end) - segment_start
-        segment.points = segment.points[max(kept_start, 0) : max(kept_end, 0)]
+        original_length = len(segment.points)
+        segment.points = [
+            point for local_index, point in enumerate(segment.points)
+            if offset + local_index in retained_set
+        ]
         if len(segment.points) == 1:
             raise InvalidGPX("После обрезки в сегменте должно остаться не менее двух точек.")
         retained_count += len(segment.points)
-        offset = segment_end
+        offset += original_length
 
     if retained_count < 2:
         raise InvalidGPX("В треке должно остаться не менее двух точек.")

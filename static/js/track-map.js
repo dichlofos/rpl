@@ -13,6 +13,11 @@ if (mapElement) {
   let originalFeature;
   let startIndex = 0;
   let endIndex = 0;
+  let areaRectangle = null;
+  let areaStart = null;
+  let selectingArea = false;
+  const defaultEditorHint = "Выберите или перетащите точку. Правый клик откроет меню.";
+  const trimTooltip = "Сначала выберите точку на треке";
 
   L.tileLayer(mapElement.dataset.tileUrl, {
     attribution: mapElement.dataset.tileAttribution,
@@ -66,12 +71,41 @@ if (mapElement) {
     selectedMarker = marker;
     marker.getElement()?.classList.add("is-selected");
     editor.querySelectorAll('[data-editor-action^="trim-"]').forEach((button) => { button.disabled = false; });
+    editor.querySelectorAll("[data-trim-tooltip]").forEach((tooltip) => { tooltip.removeAttribute("title"); });
+  };
+
+  const clearMarkerSelection = () => {
+    selectedMarker?.getElement()?.classList.remove("is-selected");
+    selectedMarker = null;
+    editor.querySelectorAll('[data-editor-action^="trim-"]').forEach((button) => { button.disabled = true; });
+    editor.querySelectorAll("[data-trim-tooltip]").forEach((tooltip) => { tooltip.title = trimTooltip; });
   };
 
   const clearMarkers = () => {
+    clearMarkerSelection();
     pointMarkers.forEach((marker) => marker.remove());
     pointMarkers = [];
-    selectedMarker = null;
+  };
+
+  const clearArea = () => {
+    if (areaRectangle) areaRectangle.remove();
+    areaRectangle = null;
+    areaStart = null;
+    selectingArea = false;
+    map.dragging.enable();
+    mapElement.classList.remove("is-selecting-area");
+    editor.querySelector("[data-area-tools]").classList.add("d-none");
+    editor.querySelector("[data-area-summary]").classList.add("d-none");
+    editor.querySelector("[data-editor-hint]").textContent = defaultEditorHint;
+  };
+
+  const showAreaSummary = () => {
+    if (!areaRectangle) return;
+    const inside = pointMarkers.filter((marker) => areaRectangle.getBounds().contains(marker.getLatLng())).length;
+    const summary = editor.querySelector("[data-area-summary]");
+    summary.textContent = `В области: ${inside} из ${pointMarkers.length} точек`;
+    summary.classList.remove("d-none");
+    editor.querySelector("[data-area-tools]").classList.remove("d-none");
   };
 
   const rebuildGeometry = () => {
@@ -138,9 +172,39 @@ if (mapElement) {
     else endIndex = selectedIndex + 1;
     pointMarkers.filter((marker) => !retained.includes(marker)).forEach((marker) => marker.remove());
     pointMarkers = retained;
-    selectedMarker = null;
-    editor.querySelectorAll('[data-editor-action^="trim-"]').forEach((button) => { button.disabled = true; });
+    clearMarkerSelection();
     map.closePopup();
+    rebuildGeometry();
+    if (areaRectangle) showAreaSummary();
+  };
+
+  const startAreaSelection = () => {
+    clearArea();
+    selectingArea = true;
+    map.dragging.disable();
+    map.closePopup();
+    mapElement.classList.add("is-selecting-area");
+    editor.querySelector("[data-editor-hint]").textContent = "Протяните мышью по карте, чтобы выделить прямоугольную область. Escape — отмена.";
+  };
+
+  const deleteByArea = (side) => {
+    if (!areaRectangle) return;
+    const bounds = areaRectangle.getBounds();
+    const retained = pointMarkers.filter((marker) => {
+      const inside = bounds.contains(marker.getLatLng());
+      return side === "inside" ? !inside : inside;
+    });
+    const groupedCounts = new Map();
+    retained.forEach((marker) => groupedCounts.set(marker.options.segmentIndex, (groupedCounts.get(marker.options.segmentIndex) || 0) + 1));
+    if (retained.length < 2 || [...groupedCounts.values()].some((count) => count < 2)) {
+      showError("После удаления в каждом оставшемся сегменте должно быть не менее двух точек.");
+      return;
+    }
+    hideError();
+    pointMarkers.filter((marker) => !retained.includes(marker)).forEach((marker) => marker.remove());
+    pointMarkers = retained;
+    clearMarkerSelection();
+    clearArea();
     rebuildGeometry();
   };
 
@@ -154,6 +218,7 @@ if (mapElement) {
 
   const cancelEditing = () => {
     feature = originalFeature;
+    clearArea();
     clearMarkers();
     setEditorState(false);
     hideError();
@@ -184,12 +249,14 @@ if (mapElement) {
         body: JSON.stringify({
           start_index: startIndex,
           end_index: endIndex,
+          retained_indices: pointMarkers.map((marker) => marker.options.originalIndex),
           coordinates: pointMarkers.map((marker) => marker.options.coordinate.slice(0, 2)),
         }),
       });
       const result = await response.json();
       if (!response.ok) throw new Error(result.error || `HTTP ${response.status}`);
       feature = result.geojson;
+      clearArea();
       clearMarkers();
       setEditorState(false);
       drawTrack();
@@ -208,6 +275,33 @@ if (mapElement) {
     if (action === "save") saveEditing();
     if (action === "trim-before") trim("before");
     if (action === "trim-after") trim("after");
+    if (action === "select-area") startAreaSelection();
+    if (action === "delete-inside") deleteByArea("inside");
+    if (action === "delete-outside") deleteByArea("outside");
+  });
+  map.on("mousedown", (event) => {
+    if (!selectingArea) return;
+    areaStart = event.latlng;
+    areaRectangle = L.rectangle(L.latLngBounds(areaStart, areaStart), {
+      color: "#0d6efd", weight: 2, fillOpacity: 0.12, dashArray: "6 4",
+    }).addTo(map);
+  });
+  map.on("mousemove", (event) => {
+    if (selectingArea && areaStart && areaRectangle) {
+      areaRectangle.setBounds(L.latLngBounds(areaStart, event.latlng));
+    }
+  });
+  map.on("mouseup", () => {
+    if (!selectingArea || !areaStart || !areaRectangle) return;
+    selectingArea = false;
+    areaStart = null;
+    map.dragging.enable();
+    mapElement.classList.remove("is-selecting-area");
+    editor.querySelector("[data-editor-hint]").textContent = "Изменения пока не сохранены. Можно выбрать другую область или нажать «Отмена».";
+    showAreaSummary();
+  });
+  document.addEventListener("keydown", (event) => {
+    if (event.key === "Escape" && areaRectangle) clearArea();
   });
   map.on("popupopen", (event) => {
     event.popup.getElement().querySelector('[data-popup-action="before"]')?.addEventListener("click", () => trim("before"));
