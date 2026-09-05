@@ -1,0 +1,15 @@
+{% extends "base.html" %}
+{% block title %}Восстановить оригинал — RPL{% endblock %}
+{% block content %}
+<div class="row justify-content-center"><div class="col-lg-7">
+  <h1 class="h3">Восстановить оригинал</h1>
+  <p>Содержимое трека «{{ track }}» будет заменено архивным GPX. Сохранённые изменения точек будут потеряны.</p>
+  <p class="text-secondary">Название, описание и группа сохранятся. При необходимости сначала скачайте текущую версию.</p>
+  <a href="{% url 'tracks:download' track.public_id %}" class="btn btn-outline-secondary mb-3">Скачать текущий GPX</a>
+  <form method="post">
+    {% csrf_token %}
+    <button type="submit" class="btn btn-primary">Восстановить из архива</button>
+    <a href="{{ track.get_absolute_url }}" class="btn btn-outline-secondary">Отмена</a>
+  </form>
+</div></div>
+{% endblock %}

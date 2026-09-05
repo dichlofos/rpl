@@ -28,6 +28,11 @@
             {% for error in form.description.errors %}<div class="text-danger small mt-1">{{ error }}</div>{% endfor %}
           </div>
 
+          <div class="mb-3">
+            <label class="form-label" for="{{ form.group.id_for_label }}">Группа</label>
+            {{ form.group }}
+            {% for error in form.group.errors %}<div class="text-danger small mt-1">{{ error }}</div>{% endfor %}
+          </div>
           <div class="mb-4">
             <label class="form-label" for="{{ form.gpx_file.id_for_label }}">GPX-файл</label>
             {{ form.gpx_file }}

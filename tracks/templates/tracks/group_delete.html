@@ -1,0 +1,11 @@
+{% extends "base.html" %}
+{% block title %}Удалить группу — RPL{% endblock %}
+{% block content %}
+<h1 class="h3">Удалить группу «{{ group }}»?</h1>
+<p>Все треки, их текущие версии и оригиналы останутся в приложении.</p>
+<form method="post">
+  {% csrf_token %}
+  <button type="submit" class="btn btn-danger">Удалить группу</button>
+  <a href="{{ group.get_absolute_url }}" class="btn btn-outline-secondary">Отмена</a>
+</form>
+{% endblock %}

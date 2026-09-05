@@ -7,7 +7,9 @@ from django.conf import settings
 from django.contrib.gis.db import models
 from django.contrib.gis.geos import GEOSGeometry, LineString, MultiLineString
 from django.core.exceptions import ValidationError
+from django.core.files.base import ContentFile
 from django.core.validators import FileExtensionValidator
+from django.db import transaction
 from django.urls import reverse
 
 from .services import InvalidGPX, parse_gpx
@@ -16,6 +18,11 @@ from .services import InvalidGPX, parse_gpx
 def anonymized_gpx_path(instance, _filename):
     token = uuid.uuid4().hex
     return f"tracks/{token[:3]}/{token[3:6]}/{token}.gpx"
+
+
+def original_gpx_path(instance, _filename):
+    token = uuid.uuid4().hex
+    return f"originals/{token[:3]}/{token[3:6]}/{token}.gpx"
 
 
 class Track(models.Model):
@@ -28,6 +35,9 @@ class Track(models.Model):
         "GPX-файл",
         upload_to=anonymized_gpx_path,
         validators=[FileExtensionValidator(["gpx"])],
+    )
+    original_gpx_file = models.FileField(
+        "архивный GPX", upload_to=original_gpx_path, default="", editable=False
     )
     owner = models.ForeignKey(
         settings.AUTH_USER_MODEL,
@@ -55,6 +65,11 @@ class Track(models.Model):
     geometry = models.MultiLineStringField("геометрия", srid=4326, null=True, editable=False)
 
     class Meta:
+        constraints: ClassVar[list] = [
+            models.CheckConstraint(
+                condition=~models.Q(original_gpx_file=""), name="track_has_original_gpx"
+            ),
+        ]
         ordering: ClassVar[list[str]] = ["-uploaded_at"]
         verbose_name = "трек"
         verbose_name_plural = "треки"
@@ -64,11 +79,6 @@ class Track(models.Model):
 
     def get_absolute_url(self):
         return reverse("tracks:detail", kwargs={"public_id": self.public_id})
-
-    def _stored_file_name(self):
-        if not self.pk:
-            return ""
-        return type(self).objects.filter(pk=self.pk).values_list("gpx_file", flat=True).first()
 
     def _parse_file(self):
         should_close = self.gpx_file._committed
@@ -117,18 +127,41 @@ class Track(models.Model):
             geometry = MultiLineString(geometry, srid=4326)
         self.geometry = geometry
 
+    @transaction.atomic
     def save(self, *args, **kwargs):
-        old_file_name = self._stored_file_name()
-        file_changed = self.gpx_file and old_file_name != self.gpx_file.name
+        stored = (
+            type(self).objects.filter(pk=self.pk).values("gpx_file", "original_gpx_file").first()
+            if self.pk
+            else None
+        )
+        old_file_name = stored["gpx_file"] if stored else ""
+        if stored and (
+            self.original_gpx_file.name != stored["original_gpx_file"]
+            or not self.original_gpx_file._committed
+        ):
+            raise ValidationError("Архивный GPX нельзя заменять или удалять.")
+        file_changed = self.gpx_file and (
+            not self.gpx_file._committed or old_file_name != self.gpx_file.name
+        )
         if file_changed:
             self._parse_file()
+            # All derived fields must be saved together with the working file.
+            kwargs.pop("update_fields", None)
+        if not stored:
+            self.gpx_file.open("rb")
+            try:
+                content = self.gpx_file.read()
+            finally:
+                self.gpx_file.seek(0)
+            self.original_gpx_file.save("original.gpx", ContentFile(content), save=False)
         super().save(*args, **kwargs)
-        if old_file_name and old_file_name != self.gpx_file.name:
-            self.gpx_file.storage.delete(old_file_name)
         if file_changed:
             from regions.services import classify_track
 
             classify_track(self)
+        if old_file_name and old_file_name != self.gpx_file.name:
+            storage = self.gpx_file.storage
+            transaction.on_commit(lambda: storage.delete(old_file_name), robust=True)
 
     @property
     def distance_km(self):
@@ -141,3 +174,48 @@ class Track(models.Model):
         total_minutes = round(self.duration_s / 60)
         hours, minutes = divmod(total_minutes, 60)
         return f"{hours} ч {minutes} мин" if hours else f"{minutes} мин"
+
+
+class TrackGroup(models.Model):
+    name = models.CharField("название", max_length=200)
+    description = models.TextField("описание", blank=True)
+    public_id = models.UUIDField(default=uuid.uuid4, unique=True, editable=False)
+    owner = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="track_groups",
+        verbose_name="владелец",
+    )
+    created_at = models.DateTimeField("создана", auto_now_add=True)
+    updated_at = models.DateTimeField("изменена", auto_now=True)
+    tracks = models.ManyToManyField(Track, through="TrackGroupMembership", related_name="groups")
+
+    class Meta:
+        ordering: ClassVar[list[str]] = ["-updated_at", "-pk"]
+        verbose_name = "группа треков"
+        verbose_name_plural = "группы треков"
+
+    def __str__(self):
+        return self.name
+
+    def get_absolute_url(self):
+        return reverse("tracks:group-detail", kwargs={"public_id": self.public_id})
+
+
+class TrackGroupMembership(models.Model):
+    group = models.ForeignKey(TrackGroup, on_delete=models.CASCADE, related_name="memberships")
+    track = models.ForeignKey(Track, on_delete=models.CASCADE, related_name="group_memberships")
+    position = models.PositiveIntegerField("порядок", default=0)
+
+    class Meta:
+        ordering: ClassVar[list[str]] = ["position", "pk"]
+        constraints: ClassVar[list] = [
+            models.UniqueConstraint(fields=["group", "track"], name="unique_group_track"),
+            # Remove this constraint when the UI supports several groups per track.
+            models.UniqueConstraint(fields=["track"], name="one_group_per_track"),
+        ]
+        indexes: ClassVar[list] = [models.Index(fields=["group", "position"])]
+        verbose_name = "участие трека в группе"
+        verbose_name_plural = "состав групп"

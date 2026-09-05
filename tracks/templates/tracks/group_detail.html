@@ -1,0 +1,73 @@
+{% extends "base.html" %}
+{% load static %}
+{% block title %}{{ group }} — RPL{% endblock %}
+{% block extra_head %}<link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css">{% endblock %}
+{% block content %}
+<a class="text-decoration-none" href="{% url 'tracks:group-list' %}">← Все группы</a>
+<div class="d-flex flex-wrap align-items-center justify-content-between gap-2 my-3">
+  <h1 class="h2 mb-0">{{ group.name }}</h1>
+  {% if can_edit %}
+    <div class="d-flex gap-2">
+      <a class="btn btn-sm btn-outline-secondary" href="{% url 'tracks:group-edit' group.public_id %}">Редактировать</a>
+      <a class="btn btn-sm btn-outline-danger" href="{% url 'tracks:group-delete' group.public_id %}">Удалить группу</a>
+    </div>
+  {% endif %}
+</div>
+{% if group.description %}<div class="text-secondary mb-3">{{ group.description|linebreaksbr }}</div>{% endif %}
+<div class="d-flex flex-wrap gap-3 mb-3">
+  <span>Треков: <strong>{{ entries|length }}</strong></span>
+  <span>Дистанция: <strong>{{ distance_km|floatformat:1 }} км</strong></span>
+  <span>Набор: <strong>{{ elevation_gain_m|floatformat:0 }} м</strong></span>
+  <span>Сброс: <strong>{{ elevation_loss_m|floatformat:0 }} м</strong></span>
+</div>
+{% if entries %}
+  <div id="group-map" class="mb-3" data-geojson-url="{% url 'tracks:group-geojson' group.public_id %}"
+       data-tile-url="{{ tile_url }}" data-tile-attribution="{{ tile_attribution }}" aria-label="Карта треков группы"></div>
+  <div id="group-map-error" class="alert alert-danger d-none" role="alert"></div>
+  <ol class="list-group mb-4">
+    {% for entry in entries %}
+      <li class="list-group-item d-flex flex-wrap align-items-center gap-3" data-group-track="{{ entry.track.public_id }}">
+        <label class="d-flex align-items-center gap-2">
+          <input type="checkbox" class="form-check-input mt-0" data-track-visible checked disabled
+                 aria-label="Показать на карте: {{ entry.track.name }}">
+          <span class="group-track-color" style="background-color: {{ entry.color }}" aria-hidden="true"></span>
+          <span>{{ entry.position }}.</span>
+        </label>
+        <div class="flex-grow-1">
+          <a href="{{ entry.track.get_absolute_url }}">{{ entry.track.name }}</a>
+          <span class="small text-secondary ms-2">{{ entry.track.distance_km|floatformat:1 }} км · {{ entry.track.elevation_gain_m|floatformat:0 }} м ↑</span>
+        </div>
+        <button type="button" class="btn btn-sm btn-outline-secondary" data-track-focus disabled>На карте</button>
+        {% if can_edit %}
+          <form method="post" action="{% url 'tracks:group-member' group.public_id entry.track.public_id %}" class="d-flex gap-1">
+            {% csrf_token %}
+            <button class="btn btn-sm btn-outline-secondary" name="action" value="up" aria-label="Переместить выше: {{ entry.track.name }}" {% if forloop.first %}disabled{% endif %}>↑</button>
+            <button class="btn btn-sm btn-outline-secondary" name="action" value="down" aria-label="Переместить ниже: {{ entry.track.name }}" {% if forloop.last %}disabled{% endif %}>↓</button>
+            <button class="btn btn-sm btn-outline-secondary" name="action" value="remove">Исключить</button>
+          </form>
+        {% endif %}
+      </li>
+    {% endfor %}
+  </ol>
+{% else %}<p class="text-secondary">В группе пока нет треков.</p>{% endif %}
+{% if can_edit %}
+  <div class="border rounded-3 p-3 bg-body">
+    <h2 class="h5">Добавить трек</h2>
+    <form method="post" action="{% url 'tracks:group-add' group.public_id %}">
+      {% csrf_token %}
+      {% for error in add_form.non_field_errors %}<div class="alert alert-danger">{{ error }}</div>{% endfor %}
+      <label class="form-label" for="{{ add_form.track.id_for_label }}">Существующий трек</label>
+      <div class="d-flex flex-wrap gap-2">{{ add_form.track }}<button class="btn btn-primary" type="submit">Добавить в группу</button></div>
+      {% for error in add_form.track.errors %}<div class="text-danger">{{ error }}</div>{% endfor %}
+      <p class="small text-secondary mt-2 mb-0">Если трек уже входит в другую группу, он будет перенесён сюда.</p>
+    </form>
+    {% if can_upload %}<a class="btn btn-outline-primary mt-3" href="{% url 'tracks:upload' %}?group={{ group.public_id }}">Загрузить новый GPX в группу</a>{% endif %}
+  </div>
+{% endif %}
+{% endblock %}
+{% block scripts %}
+{% if entries %}
+  <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+  <script type="module" src="{% static 'js/group-map.js' %}"></script>
+{% endif %}
+{% endblock %}

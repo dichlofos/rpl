@@ -1,0 +1,23 @@
+{% extends "base.html" %}
+{% block title %}Группы треков — RPL{% endblock %}
+{% block content %}
+<div class="d-flex flex-wrap justify-content-between align-items-center gap-3 mb-4">
+  <h1 class="h2 mb-0">Группы треков</h1>
+  {% if user.is_authenticated %}<a class="btn btn-primary" href="{% url 'tracks:group-create' %}">Создать группу</a>{% endif %}
+</div>
+<div class="row g-3">
+  {% for group in groups %}
+    <div class="col-md-6 col-lg-4">
+      <a class="card h-100 track-card text-decoration-none" href="{{ group.get_absolute_url }}">
+        <div class="card-body">
+          <h2 class="h5 text-body">{{ group.name }}</h2>
+          <p class="text-secondary">{{ group.description|default:"Без описания"|truncatechars:160 }}</p>
+          <span class="text-secondary">Треков: {{ group.track_count }}</span>
+        </div>
+      </a>
+    </div>
+  {% empty %}
+    <p class="text-secondary">Групп пока нет. Создайте группу для похода или путешествия и добавьте в неё треки.</p>
+  {% endfor %}
+</div>
+{% endblock %}

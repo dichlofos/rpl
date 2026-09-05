@@ -99,12 +99,22 @@
   </div>
   <aside class="col-lg-3">
     <h1 class="h3">{{ track.name }}</h1>
+    <div class="mb-3">
+      {% for group in groups %}
+        <a class="d-block mb-1" href="{{ group.get_absolute_url }}">{{ group.name }}</a>
+      {% empty %}<span class="small text-secondary">Без группы</span>{% endfor %}
+      {% if can_edit %}<a class="d-block small mt-1" href="{% url 'tracks:group' track.public_id %}">Изменить группу</a>{% endif %}
+    </div>
     {% if track.description %}<p class="text-secondary">{{ track.description }}</p>{% endif %}
     <a class="btn btn-outline-primary w-100 mb-3"
        href="{% url 'tracks:download' track.public_id %}"
        download>
       Скачать GPX
     </a>
+    <a class="btn btn-outline-secondary w-100 mb-2" href="{% url 'tracks:original' track.public_id %}" download>Скачать оригинал</a>
+    {% if can_edit %}
+      <a class="btn btn-sm btn-link text-secondary w-100 mb-3" href="{% url 'tracks:restore' track.public_id %}">Восстановить оригинал</a>
+    {% endif %}
     {% if track.primary_regions %}
       <h2 class="h6 text-uppercase text-secondary mt-4">Регионы</h2>
       <ul class="list-group list-group-flush mb-3">
