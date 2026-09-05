@@ -1,3 +1,5 @@
+import { retainedPointIndices } from "./track-simplify.mjs";
+
 const mapElement = document.querySelector("#track-map");
 
 if (mapElement) {
@@ -61,6 +63,8 @@ if (mapElement) {
     editing = active;
     editor.querySelector('[data-editor-action="start"]').classList.toggle("d-none", active);
     editor.querySelector("[data-editor-tools]").classList.toggle("d-none", !active);
+    editor.querySelector("[data-simplify-tools]").classList.toggle("d-none", !active);
+    editor.querySelector("[data-simplify-summary]").textContent = "";
     editor.querySelector('[data-editor-action="save"]').classList.toggle("d-none", !active);
     editor.querySelector('[data-editor-action="cancel"]').classList.toggle("d-none", !active);
     editor.querySelector("[data-editor-hint]").classList.toggle("d-none", !active);
@@ -208,6 +212,32 @@ if (mapElement) {
     rebuildGeometry();
   };
 
+  const simplifyTrack = () => {
+    const windowInput = editor.querySelector("[data-simplify-window]");
+    const distanceInput = editor.querySelector("[data-simplify-distance]");
+    if (!windowInput.reportValidity() || !distanceInput.reportValidity()) return;
+    try {
+      const retainedIndices = new Set(retainedPointIndices(
+        segments(), windowInput.valueAsNumber, distanceInput.valueAsNumber,
+      ));
+      const before = pointMarkers.length;
+      pointMarkers = pointMarkers.filter((marker, index) => {
+        if (retainedIndices.has(index)) return true;
+        marker.remove();
+        return false;
+      });
+      hideError();
+      clearMarkerSelection();
+      clearArea();
+      map.closePopup();
+      rebuildGeometry();
+      editor.querySelector("[data-simplify-summary]").textContent =
+        `Удалено точек: ${before - pointMarkers.length}. Осталось: ${pointMarkers.length}. Изменения пока не сохранены.`;
+    } catch (error) {
+      showError(error.message);
+    }
+  };
+
   const startEditing = () => {
     originalFeature = structuredClone(feature);
     startIndex = 0;
@@ -278,6 +308,7 @@ if (mapElement) {
     if (action === "select-area") startAreaSelection();
     if (action === "delete-inside") deleteByArea("inside");
     if (action === "delete-outside") deleteByArea("outside");
+    if (action === "simplify") simplifyTrack();
   });
   map.on("mousedown", (event) => {
     if (!selectingArea) return;

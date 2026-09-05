@@ -45,6 +45,29 @@
         </div>
         <button class="btn btn-sm btn-primary d-none" type="button" data-editor-action="save">Сохранить</button>
         <button class="btn btn-sm btn-outline-secondary d-none" type="button" data-editor-action="cancel">Отмена</button>
+        <fieldset class="w-100 border rounded p-2 d-none" data-simplify-tools>
+          <legend class="float-none w-auto fs-6 px-1 mb-1">Удаление лишних точек</legend>
+          <div class="d-flex flex-wrap align-items-end gap-2">
+            <div>
+              <label class="form-label small mb-1" for="simplify-window">Окно W, точек</label>
+              <input class="form-control form-control-sm" id="simplify-window" type="number"
+                     min="3" step="1" value="10" required data-simplify-window aria-describedby="simplify-help">
+            </div>
+            <div>
+              <label class="form-label small mb-1" for="simplify-distance">Порог d, метров</label>
+              <input class="form-control form-control-sm" id="simplify-distance" type="number"
+                     min="0" step="any" value="5" required data-simplify-distance aria-describedby="simplify-help">
+            </div>
+            <button class="btn btn-sm btn-outline-primary" type="button" data-editor-action="simplify">Применить</button>
+          </div>
+          <p class="small text-secondary mt-2 mb-0" id="simplify-help">
+            Если расстояние между первой и последней точками окна ≤ d, промежуточные точки удаляются.
+            Крайние точки остаются, даже если путь между ними делает большой крюк.
+            Обработка идёт отдельно по каждому сегменту; неполное окно в конце сохраняется.
+            Для записи результата нажмите «Сохранить».
+          </p>
+          <p class="small mb-0" role="status" aria-live="polite" data-simplify-summary></p>
+        </fieldset>
         <span class="small text-secondary d-none" data-editor-hint>Выберите или перетащите точку. Правый клик откроет меню.</span>
         <span class="small text-secondary d-none" data-area-summary></span>
       </div>
