@@ -16,3 +16,11 @@ body { min-height: 100vh; }
 #track-map.is-selecting-area, #track-map.is-selecting-area * { cursor: crosshair !important; }
 .trim-action-tooltip { display: inline-block; }
 .trim-action-tooltip .btn:disabled { pointer-events: none; }
+.elevation-chart { display: block; width: 100%; height: 240px; overflow: visible; }
+.elevation-chart text { font-size: 11px; fill: var(--bs-secondary-color); }
+.elevation-grid { stroke: var(--bs-border-color); stroke-width: 1; }
+.elevation-line { fill: none; stroke: #198754; stroke-width: 2; stroke-linejoin: round; }
+.elevation-fill { fill: #198754; fill-opacity: .12; }
+.elevation-dot { fill: #198754; stroke: var(--bs-body-bg); stroke-width: 2; }
+.elevation-cursor { stroke: var(--bs-secondary-color); stroke-dasharray: 4 4; }
+.elevation-chart:focus-visible { outline: 2px solid #0d6efd; outline-offset: 2px; }

@@ -10,6 +10,7 @@ test:
 
 test-js:
 	$(JS) tests/js/track-simplify.test.mjs
+	$(JS) tests/js/track-elevation.test.mjs
 
 check:
 	python manage.py check

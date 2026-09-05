@@ -78,6 +78,14 @@
          data-tile-attribution="{{ tile_attribution }}"
          aria-label="Карта маршрута {{ track.name }}"></div>
     <div id="map-error" class="alert alert-danger mt-3 d-none" role="alert"></div>
+    <section id="track-elevation" class="mt-3 p-3 border rounded-3 bg-body" aria-labelledby="elevation-heading">
+      <h2 id="elevation-heading" class="h6">Высотный профиль</h2>
+      <p class="small text-secondary mb-2" data-elevation-message>Загрузка высотного профиля…</p>
+      <svg class="elevation-chart d-none" tabindex="0" role="group"
+           aria-label="Высотный профиль: расстояние в километрах, высота в метрах. Стрелки влево и вправо выбирают точку."
+           aria-describedby="elevation-readout"></svg>
+      <p id="elevation-readout" class="small mb-0 d-none" data-elevation-readout></p>
+    </section>
   </div>
   <aside class="col-lg-3">
     <h1 class="h3">{{ track.name }}</h1>
@@ -111,5 +119,5 @@
 
 {% block scripts %}
   <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
-  <script type="module" src="{% static 'js/track-map.js' %}"></script>
+  <script type="module" src="{% static 'js/track-map.js' %}?v=elevation-1"></script>
 {% endblock %}

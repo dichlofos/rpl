@@ -1,4 +1,5 @@
 import { retainedPointIndices } from "./track-simplify.mjs";
+import { createElevationChart } from "./track-elevation.mjs";
 
 const mapElement = document.querySelector("#track-map");
 
@@ -6,6 +7,19 @@ if (mapElement) {
   const map = L.map(mapElement);
   const editor = document.querySelector("#track-editor");
   const errorAlert = document.querySelector("#map-error");
+  let elevationMarker = null;
+  const elevationChart = createElevationChart(document.querySelector("#track-elevation"), (coordinate) => {
+    if (!coordinate) {
+      elevationMarker?.remove();
+      elevationMarker = null;
+      return;
+    }
+    const latlng = [coordinate[1], coordinate[0]];
+    if (elevationMarker) elevationMarker.setLatLng(latlng);
+    else elevationMarker = L.circleMarker(latlng, {
+      radius: 7, color: "#0d6efd", weight: 3, fillColor: "#fff", fillOpacity: 1, interactive: false,
+    }).addTo(map);
+  });
   let feature;
   let trackLayer;
   let endpointLayers = [];
@@ -38,6 +52,7 @@ if (mapElement) {
   const coordinates = () => segments().flat();
 
   const drawTrack = (fit = false) => {
+    elevationChart.update(segments());
     if (trackLayer) {
       trackLayer.clearLayers();
       trackLayer.addData(feature);
@@ -352,6 +367,7 @@ if (mapElement) {
       drawTrack(true);
     })
     .catch((error) => {
+      elevationChart.showError();
       map.setView([55.75, 37.62], 5);
       showError(`Не удалось загрузить маршрут: ${error.message}`);
     });

@@ -70,6 +70,8 @@ class TrackTests(TestCase):
         self.assertContains(list_response, 'data-track-view="table"')
         self.assertContains(list_response, "Дистанция")
         self.assertContains(detail_response, "track-map")
+        self.assertContains(detail_response, 'id="track-elevation"')
+        self.assertContains(detail_response, "Высотный профиль")
         self.assertEqual(geojson_response.status_code, 200)
         self.assertEqual(geojson_response.json()["properties"]["name"], "Test route")
 
