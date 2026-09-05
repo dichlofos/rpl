@@ -22,6 +22,7 @@ class TrackAdmin(admin.ModelAdmin):
         "min_elevation_m",
         "max_elevation_m",
         "points_count",
+        "waypoints_count",
         "started_at",
         "finished_at",
         "duration_s",

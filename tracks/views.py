@@ -173,6 +173,7 @@ def track_edit(request, public_id):
             payload.get("start_index"),
             payload.get("end_index"),
             payload.get("retained_indices"),
+            payload.get("waypoints"),
         )
     except (json.JSONDecodeError, AttributeError, InvalidGPX) as exc:
         message = str(exc) if isinstance(exc, InvalidGPX) else "Неверные данные редактирования."
@@ -191,6 +192,7 @@ def track_edit(request, public_id):
                 "elevation_loss_m": round(track.elevation_loss_m),
                 "duration": track.duration_display,
                 "points_count": track.points_count,
+                "waypoints_count": track.waypoints_count,
             },
         }
     )

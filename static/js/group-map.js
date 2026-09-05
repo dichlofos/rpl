@@ -1,3 +1,5 @@
+import { waypointIcon, waypointLabel } from "./waypoints.mjs";
+
 const element = document.querySelector("#group-map");
 if (element) {
   const map = L.map(element);
@@ -20,6 +22,11 @@ if (element) {
         const layer = L.geoJSON(feature, {
           style: { color: feature.properties.color, weight: 4, opacity: 0.85 },
         }).bindPopup(link).addTo(map);
+        for (const point of feature.waypoints || []) {
+          L.marker([point.coordinates[1], point.coordinates[0]], {
+            icon: waypointIcon(feature.properties.color), title: point.name || "Путевая точка",
+          }).bindPopup(waypointLabel(point)).addTo(layer);
+        }
         const trackBounds = layer.getBounds();
         if (!trackBounds.isValid()) continue;
         bounds.extend(trackBounds);

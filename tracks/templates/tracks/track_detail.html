@@ -44,6 +44,7 @@
           </button>
         </div>
         <button class="btn btn-sm btn-primary d-none" type="button" data-editor-action="save">Сохранить</button>
+        <button class="btn btn-sm btn-outline-primary d-none" type="button" data-editor-action="add-waypoint">Добавить путевую точку</button>
         <button class="btn btn-sm btn-outline-secondary d-none" type="button" data-editor-action="cancel">Отмена</button>
         <fieldset class="w-100 border rounded p-2 d-none" data-simplify-tools>
           <legend class="float-none w-auto fs-6 px-1 mb-1">Удаление лишних точек</legend>
@@ -131,7 +132,8 @@
       <div><dt>Набор</dt><dd data-track-stat="elevation_gain_m">{{ track.elevation_gain_m|floatformat:0 }} м</dd></div>
       <div><dt>Сброс</dt><dd data-track-stat="elevation_loss_m">{{ track.elevation_loss_m|floatformat:0 }} м</dd></div>
       <div><dt>Продолжительность</dt><dd data-track-stat="duration">{{ track.duration_display }}</dd></div>
-      <div><dt>Точек</dt><dd data-track-stat="points_count">{{ track.points_count }}</dd></div>
+      <div><dt>Точек трека</dt><dd data-track-stat="points_count">{{ track.points_count }}</dd></div>
+      <div><dt>Путевых точек</dt><dd data-track-stat="waypoints_count">{{ track.waypoints_count }}</dd></div>
     </dl>
   </aside>
 </div>
@@ -139,5 +141,5 @@
 
 {% block scripts %}
   <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
-  <script type="module" src="{% static 'js/track-map.js' %}?v=elevation-3"></script>
+  <script type="module" src="{% static 'js/track-map.js' %}?v=waypoints-1"></script>
 {% endblock %}

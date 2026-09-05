@@ -32,3 +32,5 @@ body { min-height: 100vh; }
 .elevation-help:focus-within .elevation-help-tooltip { visibility: visible; }
 #group-map { width: 100%; height: min(65vh, 600px); min-height: 320px; border-radius: .75rem; }
 .group-track-color { display: inline-block; width: .85rem; height: .85rem; border-radius: 50%; }
+.waypoint-marker span { display: flex; align-items: center; justify-content: center; width: 22px; height: 22px; border: 2px solid white; border-radius: 5px; color: white; font-size: 12px; box-shadow: 0 1px 4px #0006; }
+.waypoint-form { width: 220px; max-width: 65vw; }

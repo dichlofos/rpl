@@ -12,7 +12,7 @@ from django.core.validators import FileExtensionValidator
 from django.db import transaction
 from django.urls import reverse
 
-from .services import InvalidGPX, parse_gpx
+from .services import InvalidGPX, line_segments, parse_gpx
 
 
 def anonymized_gpx_path(instance, _filename):
@@ -54,6 +54,7 @@ class Track(models.Model):
     min_elevation_m = models.FloatField("минимальная высота, м", null=True, editable=False)
     max_elevation_m = models.FloatField("максимальная высота, м", null=True, editable=False)
     points_count = models.PositiveIntegerField("точек", default=0, editable=False)
+    waypoints_count = models.PositiveIntegerField("путевых точек", default=0, editable=False)
     started_at = models.DateTimeField("начало", null=True, editable=False)
     finished_at = models.DateTimeField("окончание", null=True, editable=False)
     duration_s = models.FloatField("продолжительность, с", null=True, editable=False)
@@ -104,6 +105,7 @@ class Track(models.Model):
             "min_elevation_m",
             "max_elevation_m",
             "points_count",
+            "waypoints_count",
             "started_at",
             "finished_at",
             "duration_s",
@@ -113,14 +115,15 @@ class Track(models.Model):
             "max_longitude",
         ):
             setattr(self, field, getattr(parsed, field))
-        geometry_data = parsed.geojson["geometry"]
-        coordinates = geometry_data["coordinates"]
-        if geometry_data["type"] == "LineString":
-            coordinates = [[point[0], point[1]] for point in coordinates]
-        else:
-            coordinates = [[[point[0], point[1]] for point in segment] for segment in coordinates]
+        coordinates = [
+            [point[:2] for point in segment]
+            for segment in line_segments(parsed.geojson["geometry"])
+        ]
+        if not coordinates:
+            self.geometry = None
+            return
         geometry = GEOSGeometry(
-            json.dumps({"type": geometry_data["type"], "coordinates": coordinates}),
+            json.dumps({"type": "MultiLineString", "coordinates": coordinates}),
             srid=4326,
         )
         if isinstance(geometry, LineString):

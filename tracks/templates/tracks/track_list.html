@@ -45,7 +45,7 @@
             <div class="d-flex gap-3 text-body">
               <span><strong>{{ track.distance_km|floatformat:1 }}</strong> км</span>
               <span><strong>{{ track.elevation_gain_m|floatformat:0 }}</strong> м ↑</span>
-              <span><strong>{{ track.points_count }}</strong> точек</span>
+              <span><strong>{{ track.points_count }}</strong> точек{% if track.waypoints_count %} + {{ track.waypoints_count }} путевых{% endif %}</span>
             </div>
           </div>
         </a>
@@ -84,7 +84,7 @@
             <td class="text-end text-nowrap">{{ track.distance_km|floatformat:1 }} км</td>
             <td class="text-end text-nowrap">{{ track.elevation_gain_m|floatformat:0 }} м</td>
             <td class="text-end text-nowrap">{{ track.duration_display }}</td>
-            <td class="text-end">{{ track.points_count }}</td>
+            <td class="text-end">{{ track.points_count }}{% if track.waypoints_count %}<br><span class="small text-secondary">{{ track.waypoints_count }} путевых</span>{% endif %}</td>
             <td class="text-end text-nowrap">{{ track.uploaded_at|date:"d.m.Y" }}</td>
           </tr>
         {% endfor %}

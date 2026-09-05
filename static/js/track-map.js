@@ -1,5 +1,7 @@
 import { retainedPointIndices } from "./track-simplify.mjs";
 import { createElevationChart } from "./track-elevation.mjs?v=3";
+import { routeSegments, routeGeometry } from "./track-geometry.mjs";
+import { createWaypointEditor } from "./waypoints.mjs";
 
 const mapElement = document.querySelector("#track-map");
 
@@ -32,6 +34,7 @@ if (mapElement) {
   let areaRectangle = null;
   let areaStart = null;
   let selectingArea = false;
+  let addingWaypoint = false;
   const defaultEditorHint = "Выберите или перетащите точку. Правый клик откроет меню.";
   const trimTooltip = "Сначала выберите точку на треке";
 
@@ -46,10 +49,9 @@ if (mapElement) {
   };
 
   const hideError = () => errorAlert.classList.add("d-none");
-  const segments = () => feature.geometry.type === "LineString"
-    ? [feature.geometry.coordinates]
-    : feature.geometry.coordinates;
+  const segments = () => routeSegments(feature.geometry);
   const coordinates = () => segments().flat();
+  const waypointEditor = createWaypointEditor(map, () => feature, () => editing, () => coordinates().length, showError);
 
   const drawTrack = (fit = false) => {
     elevationChart.update(segments());
@@ -60,9 +62,19 @@ if (mapElement) {
       trackLayer = L.geoJSON(feature, { style: { color: "#dc3545", weight: 5, opacity: 0.9 } }).addTo(map);
     }
     const bounds = trackLayer.getBounds();
-    if (!bounds.isValid()) throw new Error("У маршрута нет корректных координат");
-    if (fit) map.fitBounds(bounds, { padding: [24, 24] });
+    for (const point of feature.waypoints || []) bounds.extend([point.coordinates[1], point.coordinates[0]]);
+    if (fit && bounds.isValid()) map.fitBounds(bounds, { padding: [24, 24], maxZoom: 17 });
     const points = coordinates();
+    document.querySelector("#track-elevation").classList.toggle("d-none", !points.length);
+    if (editor) {
+      editor.querySelector("[data-editor-tools]").classList.toggle("d-none", !editing || !points.length);
+      editor.querySelector("[data-simplify-tools]").classList.toggle("d-none", !editing || points.length < 3);
+    }
+    if (!points.length) {
+      endpointLayers.forEach(layer => layer.remove());
+      endpointLayers = [];
+      return;
+    }
     if (endpointLayers.length) {
       endpointLayers[0].setLatLng([points[0][1], points[0][0]]);
       endpointLayers[1].setLatLng([points.at(-1)[1], points.at(-1)[0]]);
@@ -76,13 +88,16 @@ if (mapElement) {
 
   const setEditorState = (active) => {
     editing = active;
+    addingWaypoint = false;
     editor.querySelector('[data-editor-action="start"]').classList.toggle("d-none", active);
-    editor.querySelector("[data-editor-tools]").classList.toggle("d-none", !active);
-    editor.querySelector("[data-simplify-tools]").classList.toggle("d-none", !active);
+    editor.querySelector("[data-editor-tools]").classList.toggle("d-none", !active || !coordinates().length);
+    editor.querySelector("[data-simplify-tools]").classList.toggle("d-none", !active || coordinates().length < 3);
     editor.querySelector("[data-simplify-summary]").textContent = "";
     editor.querySelector('[data-editor-action="save"]').classList.toggle("d-none", !active);
     editor.querySelector('[data-editor-action="cancel"]').classList.toggle("d-none", !active);
     editor.querySelector("[data-editor-hint]").classList.toggle("d-none", !active);
+    editor.querySelector('[data-editor-action="add-waypoint"]').classList.toggle("d-none", !active);
+    waypointEditor.redraw();
   };
 
   const selectMarker = (marker) => {
@@ -111,6 +126,7 @@ if (mapElement) {
     areaRectangle = null;
     areaStart = null;
     selectingArea = false;
+    addingWaypoint = false;
     map.dragging.enable();
     mapElement.classList.remove("is-selecting-area");
     editor.querySelector("[data-area-tools]").classList.add("d-none");
@@ -135,9 +151,7 @@ if (mapElement) {
       grouped[segmentIndex].push(marker.options.coordinate);
     });
     const nonEmpty = grouped.filter((segment) => segment?.length);
-    feature.geometry = nonEmpty.length === 1
-      ? { type: "LineString", coordinates: nonEmpty[0] }
-      : { type: "MultiLineString", coordinates: nonEmpty };
+    feature.geometry = routeGeometry(nonEmpty);
     drawTrack();
   };
 
@@ -180,10 +194,8 @@ if (mapElement) {
     const retained = pointMarkers.filter((marker) => side === "before"
       ? marker.options.originalIndex >= selectedIndex
       : marker.options.originalIndex <= selectedIndex);
-    const groupedCounts = new Map();
-    retained.forEach((marker) => groupedCounts.set(marker.options.segmentIndex, (groupedCounts.get(marker.options.segmentIndex) || 0) + 1));
-    if (retained.length < 2 || [...groupedCounts.values()].some((count) => count < 2)) {
-      showError("После обрезки в каждом сегменте должно остаться не менее двух точек.");
+    if (!retained.length && !feature.waypoints.length) {
+      showError("Должна остаться хотя бы одна точка трека или путевая точка.");
       return;
     }
     hideError();
@@ -213,10 +225,8 @@ if (mapElement) {
       const inside = bounds.contains(marker.getLatLng());
       return side === "inside" ? !inside : inside;
     });
-    const groupedCounts = new Map();
-    retained.forEach((marker) => groupedCounts.set(marker.options.segmentIndex, (groupedCounts.get(marker.options.segmentIndex) || 0) + 1));
-    if (retained.length < 2 || [...groupedCounts.values()].some((count) => count < 2)) {
-      showError("После удаления в каждом оставшемся сегменте должно быть не менее двух точек.");
+    if (!retained.length && !feature.waypoints.length) {
+      showError("Должна остаться хотя бы одна точка трека или путевая точка.");
       return;
     }
     hideError();
@@ -277,6 +287,7 @@ if (mapElement) {
       elevation_loss_m: `${stats.elevation_loss_m} м`,
       duration: stats.duration,
       points_count: stats.points_count,
+      waypoints_count: stats.waypoints_count,
     };
     Object.entries(values).forEach(([name, value]) => {
       document.querySelector(`[data-track-stat="${name}"]`).textContent = value;
@@ -284,6 +295,7 @@ if (mapElement) {
   };
 
   const saveEditing = async () => {
+    if (!waypointEditor.commit()) return;
     const saveButton = editor.querySelector('[data-editor-action="save"]');
     saveButton.disabled = true;
     hideError();
@@ -296,6 +308,7 @@ if (mapElement) {
           end_index: endIndex,
           retained_indices: pointMarkers.map((marker) => marker.options.originalIndex),
           coordinates: pointMarkers.map((marker) => marker.options.coordinate.slice(0, 2)),
+          waypoints: feature.waypoints,
         }),
       });
       const result = await response.json();
@@ -324,6 +337,17 @@ if (mapElement) {
     if (action === "delete-inside") deleteByArea("inside");
     if (action === "delete-outside") deleteByArea("outside");
     if (action === "simplify") simplifyTrack();
+    if (action === "add-waypoint") {
+      clearArea();
+      addingWaypoint = true;
+      editor.querySelector("[data-editor-hint]").textContent = "Нажмите на карту, чтобы добавить путевую точку. Escape — отмена.";
+    }
+  });
+  map.on("click", event => {
+    if (!addingWaypoint) return;
+    addingWaypoint = false;
+    editor.querySelector("[data-editor-hint]").textContent = defaultEditorHint;
+    waypointEditor.add(event.latlng);
   });
   map.on("mousedown", (event) => {
     if (!selectingArea) return;
@@ -347,7 +371,7 @@ if (mapElement) {
     showAreaSummary();
   });
   document.addEventListener("keydown", (event) => {
-    if (event.key === "Escape" && areaRectangle) clearArea();
+    if (event.key === "Escape" && (areaRectangle || addingWaypoint)) clearArea();
   });
   map.on("popupopen", (event) => {
     event.popup.getElement().querySelector('[data-popup-action="before"]')?.addEventListener("click", () => trim("before"));
@@ -364,6 +388,8 @@ if (mapElement) {
     })
     .then((loadedFeature) => {
       feature = loadedFeature;
+      feature.waypoints ||= [];
+      waypointEditor.redraw();
       drawTrack(true);
     })
     .catch((error) => {
