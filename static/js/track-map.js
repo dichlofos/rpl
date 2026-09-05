@@ -1,5 +1,5 @@
 import { retainedPointIndices } from "./track-simplify.mjs";
-import { createElevationChart } from "./track-elevation.mjs";
+import { createElevationChart } from "./track-elevation.mjs?v=3";
 
 const mapElement = document.querySelector("#track-map");
 

@@ -80,7 +80,7 @@ export const createElevationChart = (container, onPoint = () => {}) => {
     dot.setAttribute("cx", x(point.distance));
     dot.setAttribute("cy", y(point.elevation));
     dot.setAttribute("visibility", "visible");
-    readout.textContent = `${number(point.distance / 1000, 2)} км · ${number(point.elevation, 1)} м`;
+    readout.textContent = `${number(point.distance / 1000, 2)} км · ${number(point.elevation)} м`;
     onPoint(point.coordinate);
   };
 
@@ -92,7 +92,7 @@ export const createElevationChart = (container, onPoint = () => {}) => {
     svg.classList.toggle("d-none", !hasElevation);
     readout.classList.toggle("d-none", !hasElevation);
     message.textContent = hasElevation
-      ? `Высота: ${number(profile.minElevation, 1)}–${number(profile.maxElevation, 1)} м. Расстояние по горизонтали, без учёта промежутков между сегментами. Пропуски высоты не соединяются.`
+      ? `Высота: ${number(profile.minElevation)}–${number(profile.maxElevation)} м.`
       : "В этом треке нет данных о высоте.";
     if (!hasElevation) return;
 
@@ -109,11 +109,11 @@ export const createElevationChart = (container, onPoint = () => {}) => {
     for (let i = 0; i <= 4; i += 1) {
       const elevation = min + (max - min) * i / 4;
       svg.append(svgNode("line", { x1: left, x2: width - right, y1: y(elevation), y2: y(elevation), class: "elevation-grid" }));
-      svg.append(svgNode("text", { x: left - 8, y: y(elevation) + 4, "text-anchor": "end" }, number(elevation, 1)));
+      svg.append(svgNode("text", { x: left - 8, y: y(elevation) + 4, "text-anchor": "end" }, number(elevation)));
     }
     for (let i = 0; i <= ticks; i += 1) {
       const distance = distanceMax * i / ticks;
-      svg.append(svgNode("text", { x: x(distance), y: bottom + 20, "text-anchor": "middle" }, number(distance / 1000, 3)));
+      svg.append(svgNode("text", { x: x(distance), y: bottom + 20, "text-anchor": "middle" }, number(distance / 1000, 1)));
     }
     svg.append(svgNode("text", { x: left, y: 14 }, "Высота, м"));
     svg.append(svgNode("text", { x: width - right, y: height - 2, "text-anchor": "end" }, "Расстояние, км"));
