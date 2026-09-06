@@ -41,6 +41,10 @@
 версия Python — 3.13. SQLite не поддерживается, так как модели проекта
 используют GIS-поля.
 
+Node.js для запуска приложения не требуется. Опционально установите
+Node.js 22 или новее, если нужно проверять синтаксис клиентского JavaScript
+и запускать JS-тесты.
+
 На Debian/Ubuntu системные зависимости можно установить готовым скриптом:
 
 ```bash
@@ -77,6 +81,7 @@ python manage.py runserver
 ```bash
 make check
 make test
+make test-js
 make migrate
 make run
 ```
