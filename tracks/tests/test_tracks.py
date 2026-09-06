@@ -8,7 +8,7 @@ from django.core.files.uploadedfile import SimpleUploadedFile
 from django.test import TestCase, override_settings
 from django.urls import reverse
 
-from tracks.models import Track
+from tracks.models import Track, TrackGroup
 
 GPX = b"""<?xml version="1.0" encoding="UTF-8"?>
 <gpx version="1.1" creator="RPL tests" xmlns="http://www.topografix.com/GPX/1/1">
@@ -66,6 +66,7 @@ class TrackTests(TestCase):
         geojson_response = self.client.get(reverse("tracks:geojson", args=[track.public_id]))
 
         self.assertContains(list_response, "Test route")
+        self.assertContains(list_response, f'href="{reverse("tracks:list")}">Треки</a>')
         self.assertContains(list_response, 'data-track-view="cards"')
         self.assertContains(list_response, 'data-track-view="table"')
         self.assertContains(list_response, "Дистанция")
@@ -74,6 +75,31 @@ class TrackTests(TestCase):
         self.assertContains(detail_response, "Высотный профиль")
         self.assertEqual(geojson_response.status_code, 200)
         self.assertEqual(geojson_response.json()["properties"]["name"], "Test route")
+
+    def test_dashboard_and_track_list_have_separate_urls(self):
+        owner = get_user_model().objects.create_user("dashboard-owner")
+        owned = self.make_track()
+        owned.owner = owner
+        owned.save(update_fields=["owner"])
+        TrackGroup.objects.create(name="My group", owner=owner)
+
+        dashboard_url = reverse("tracks:dashboard")
+        list_url = reverse("tracks:list")
+        self.assertEqual(dashboard_url, "/")
+        self.assertEqual(list_url, "/tracks/")
+
+        anonymous = self.client.get(dashboard_url)
+        self.assertContains(anonymous, "Треков всего")
+        self.assertContains(anonymous, "Групп всего")
+        self.assertNotContains(anonymous, "Моих треков")
+        self.assertContains(anonymous, f'href="{list_url}">Треки</a>')
+
+        self.client.force_login(owner)
+        authenticated = self.client.get(dashboard_url)
+        self.assertContains(authenticated, "Моих треков")
+        self.assertContains(authenticated, "Моих групп")
+        self.assertEqual(authenticated.context["my_tracks_count"], 1)
+        self.assertEqual(authenticated.context["my_groups_count"], 1)
 
     def test_track_can_be_downloaded_as_gpx(self):
         track = self.make_track("Поход выходного дня")

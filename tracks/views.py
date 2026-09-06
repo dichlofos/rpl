@@ -18,7 +18,7 @@ from regions.models import TrackRegion
 from .archive_services import restore_original
 from .forms import GroupChoiceForm, TrackUploadForm
 from .group_services import assign_track
-from .models import Track
+from .models import Track, TrackGroup
 from .permissions import can_manage, require_manage
 from .services import InvalidGPX, edit_gpx
 
@@ -28,6 +28,19 @@ def with_primary_regions(queryset):
     return queryset.prefetch_related(
         Prefetch("region_links", queryset=primary_regions, to_attr="primary_regions")
     )
+
+
+def dashboard(request):
+    context = {
+        "tracks_count": Track.objects.count(),
+        "groups_count": TrackGroup.objects.count(),
+    }
+    if request.user.is_authenticated:
+        context.update(
+            my_tracks_count=Track.objects.filter(owner=request.user).count(),
+            my_groups_count=TrackGroup.objects.filter(owner=request.user).count(),
+        )
+    return render(request, "tracks/dashboard.html", context)
 
 
 def track_list(request):
