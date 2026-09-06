@@ -22,7 +22,11 @@
   <span>Сброс: <strong>{{ elevation_loss_m|floatformat:0 }} м</strong></span>
 </div>
 {% if entries %}
-  <div class="d-flex justify-content-end mb-2">
+  <div class="d-flex flex-wrap justify-content-end gap-3 mb-2">
+    <label class="form-check d-flex align-items-center gap-2 mb-0">
+      <input class="form-check-input mt-0" type="checkbox" data-all-tracks-visible checked disabled>
+      <span class="small">Показывать все треки</span>
+    </label>
     <label class="form-check d-flex align-items-center gap-2 mb-0">
       <input class="form-check-input mt-0" type="checkbox" data-waypoint-names>
       <span class="small">Показывать имена точек</span>
@@ -75,6 +79,6 @@
 {% block scripts %}
 {% if entries %}
   <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
-  <script type="module" src="{% static 'js/group-map.js' %}?v=waypoint-labels-1"></script>
+  <script type="module" src="{% static 'js/group-map.js' %}?v=track-visibility-1"></script>
 {% endif %}
 {% endblock %}

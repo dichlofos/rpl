@@ -5,7 +5,23 @@ const waypointNamesKey = "rpl-show-waypoint-names";
 if (element) {
   const map = L.map(element);
   const namesToggle = document.querySelector("[data-waypoint-names]");
+  const allTracksToggle = document.querySelector("[data-all-tracks-visible]");
   const waypointMarkers = [];
+  const trackLayers = [];
+  const syncAllTracksToggle = () => {
+    const visibleCount = trackLayers.filter(({ checkbox }) => checkbox.checked).length;
+    allTracksToggle.disabled = !trackLayers.length;
+    allTracksToggle.checked = visibleCount === trackLayers.length;
+    allTracksToggle.indeterminate = visibleCount > 0 && visibleCount < trackLayers.length;
+  };
+  allTracksToggle.addEventListener("change", () => {
+    trackLayers.forEach(({ checkbox, layer }) => {
+      checkbox.checked = allTracksToggle.checked;
+      if (allTracksToggle.checked) layer.addTo(map);
+      else layer.remove();
+    });
+    syncAllTracksToggle();
+  });
   try {
     namesToggle.checked = window.localStorage.getItem(waypointNamesKey) === "true";
   } catch {
@@ -54,17 +70,21 @@ if (element) {
         const focus = row.querySelector("[data-track-focus]");
         checkbox.disabled = false;
         focus.disabled = false;
+        trackLayers.push({ checkbox, layer });
         checkbox.addEventListener("change", () => {
           if (checkbox.checked) layer.addTo(map);
           else layer.remove();
+          syncAllTracksToggle();
         });
         focus.addEventListener("click", () => {
           checkbox.checked = true;
           layer.addTo(map);
+          syncAllTracksToggle();
           map.fitBounds(trackBounds, { padding: [24, 24], maxZoom: 17 });
           element.scrollIntoView({ behavior: "smooth", block: "center" });
         });
       }
+      syncAllTracksToggle();
       if (bounds.isValid()) map.fitBounds(bounds, { padding: [24, 24], maxZoom: 17 });
       else map.setView([55.75, 37.62], 5);
     })
