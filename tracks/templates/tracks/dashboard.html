@@ -8,44 +8,43 @@
   <p class="text-secondary mb-0">GPX-треки, путевые точки и группы путешествий</p>
 </div>
 
-<div class="row g-3 mb-4">
-  <div class="col-sm-6{% if user.is_authenticated %} col-lg-3{% endif %}">
-    <a class="card dashboard-stat h-100 text-decoration-none" href="{% url 'tracks:list' %}">
-      <div class="card-body">
+<section class="border rounded-3 p-3 p-md-4 mb-3">
+  <h2 class="h5 mb-3">Общая статистика</h2>
+  <div class="row g-3">
+    <div class="col-sm-6">
+      <a class="dashboard-stat d-block h-100 rounded-3 bg-body-tertiary p-3 text-decoration-none" href="{% url 'tracks:list' %}">
         <div class="display-6 fw-semibold text-body">{{ tracks_count }}</div>
         <div class="text-secondary">Треков всего</div>
-      </div>
-    </a>
-  </div>
-  <div class="col-sm-6{% if user.is_authenticated %} col-lg-3{% endif %}">
-    <a class="card dashboard-stat h-100 text-decoration-none" href="{% url 'tracks:group-list' %}">
-      <div class="card-body">
+      </a>
+    </div>
+    <div class="col-sm-6">
+      <a class="dashboard-stat d-block h-100 rounded-3 bg-body-tertiary p-3 text-decoration-none" href="{% url 'tracks:group-list' %}">
         <div class="display-6 fw-semibold text-body">{{ groups_count }}</div>
         <div class="text-secondary">Групп всего</div>
-      </div>
-    </a>
+      </a>
+    </div>
   </div>
-  {% if user.is_authenticated %}
-    <div class="col-sm-6 col-lg-3">
-      <div class="card dashboard-stat h-100 border-primary-subtle">
-        <div class="card-body">
+</section>
+
+{% if user.is_authenticated %}
+  <section class="border rounded-3 p-3 p-md-4 mb-4">
+    <h2 class="h5 mb-3">Моя статистика</h2>
+    <div class="row g-3">
+      <div class="col-sm-6">
+        <div class="h-100 rounded-3 bg-body-tertiary p-3">
           <div class="display-6 fw-semibold">{{ my_tracks_count }}</div>
           <div class="text-secondary">Моих треков</div>
         </div>
       </div>
-    </div>
-    <div class="col-sm-6 col-lg-3">
-      <div class="card dashboard-stat h-100 border-primary-subtle">
-        <div class="card-body">
+      <div class="col-sm-6">
+        <div class="h-100 rounded-3 bg-body-tertiary p-3">
           <div class="display-6 fw-semibold">{{ my_groups_count }}</div>
           <div class="text-secondary">Моих групп</div>
         </div>
       </div>
     </div>
-  {% endif %}
-</div>
+  </section>
 
-{% if user.is_authenticated %}
   <div class="d-flex flex-wrap gap-2">
     <a class="btn btn-primary" href="{% url 'tracks:upload' %}">Загрузить GPX</a>
   </div>

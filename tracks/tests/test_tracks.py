@@ -89,8 +89,10 @@ class TrackTests(TestCase):
         self.assertEqual(list_url, "/tracks/")
 
         anonymous = self.client.get(dashboard_url)
+        self.assertContains(anonymous, "Общая статистика")
         self.assertContains(anonymous, "Треков всего")
         self.assertContains(anonymous, "Групп всего")
+        self.assertNotContains(anonymous, "Моя статистика")
         self.assertNotContains(anonymous, "Моих треков")
         self.assertContains(anonymous, f'href="{list_url}">Треки</a>')
         self.assertNotContains(anonymous, "Открыть треки")
@@ -99,6 +101,8 @@ class TrackTests(TestCase):
 
         self.client.force_login(owner)
         authenticated = self.client.get(dashboard_url)
+        self.assertContains(authenticated, "Общая статистика")
+        self.assertContains(authenticated, "Моя статистика")
         self.assertContains(authenticated, "Моих треков")
         self.assertContains(authenticated, "Моих групп")
         self.assertNotContains(authenticated, "Открыть треки")
