@@ -1,9 +1,10 @@
 import { retainedPointIndices } from "./track-simplify.mjs";
 import { createElevationChart } from "./track-elevation.mjs?v=3";
 import { routeSegments, routeGeometry } from "./track-geometry.mjs";
-import { createWaypointEditor } from "./waypoints.mjs";
+import { createWaypointEditor } from "./waypoints.mjs?v=labels-1";
 
 const mapElement = document.querySelector("#track-map");
+const waypointNamesKey = "rpl-show-waypoint-names";
 
 if (mapElement) {
   const map = L.map(mapElement);
@@ -52,6 +53,23 @@ if (mapElement) {
   const segments = () => routeSegments(feature.geometry);
   const coordinates = () => segments().flat();
   const waypointEditor = createWaypointEditor(map, () => feature, () => editing, () => coordinates().length, showError);
+  const namesToggle = document.querySelector("[data-waypoint-names]");
+  let namesVisible = false;
+  try {
+    namesVisible = window.localStorage.getItem(waypointNamesKey) === "true";
+  } catch {
+    namesVisible = false;
+  }
+  namesToggle.checked = namesVisible;
+  namesToggle.addEventListener("change", () => {
+    namesVisible = namesToggle.checked;
+    waypointEditor.setNamesVisible(namesVisible);
+    try {
+      window.localStorage.setItem(waypointNamesKey, String(namesVisible));
+    } catch {
+      // The toggle still works when browser storage is unavailable.
+    }
+  });
 
   const drawTrack = (fit = false) => {
     elevationChart.update(segments());
@@ -390,6 +408,7 @@ if (mapElement) {
       feature = loadedFeature;
       feature.waypoints ||= [];
       waypointEditor.redraw();
+      waypointEditor.setNamesVisible(namesVisible);
       drawTrack(true);
     })
     .catch((error) => {

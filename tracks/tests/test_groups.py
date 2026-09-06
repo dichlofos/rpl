@@ -124,6 +124,7 @@ class GroupTests(TestCase):
         )
         page = self.client.get(self.group.get_absolute_url())
         self.assertContains(page, "Day 1")
+        self.assertContains(page, "Показывать имена точек")
         self.assertNotContains(page, "Добавить в группу")
         self.assertAlmostEqual(
             page.context["distance_km"], (self.track.distance_m + self.second.distance_m) / 1000

@@ -52,7 +52,9 @@ class WaypointTests(TestCase):
         feature = self.client.get(reverse("tracks:geojson", args=[track.public_id])).json()
         self.assertIsNone(feature["geometry"])
         self.assertEqual(feature["waypoints"][0]["name"], "Camp")
-        self.assertContains(self.client.get(track.get_absolute_url()), "Путевых точек")
+        page = self.client.get(track.get_absolute_url())
+        self.assertContains(page, "Путевых точек")
+        self.assertContains(page, "Показывать имена точек")
 
     def test_mixed_waypoints_do_not_change_route_statistics(self):
         route = parse_gpx(GPX)

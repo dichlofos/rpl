@@ -73,6 +73,12 @@
         <span class="small text-secondary d-none" data-area-summary></span>
       </div>
     {% endif %}
+    <div class="d-flex justify-content-end mb-2">
+      <label class="form-check d-flex align-items-center gap-2 mb-0">
+        <input class="form-check-input mt-0" type="checkbox" data-waypoint-names>
+        <span class="small">Показывать имена точек</span>
+      </label>
+    </div>
     <div id="track-map"
          data-geojson-url="{% url 'tracks:geojson' track.public_id %}"
          data-tile-url="{{ tile_url }}"
@@ -141,5 +147,5 @@
 
 {% block scripts %}
   <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
-  <script type="module" src="{% static 'js/track-map.js' %}?v=waypoints-1"></script>
+  <script type="module" src="{% static 'js/track-map.js' %}?v=waypoint-labels-1"></script>
 {% endblock %}

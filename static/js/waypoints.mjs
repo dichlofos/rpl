@@ -22,9 +22,19 @@ export const waypointLabel = (point) => {
   return box;
 };
 
+export const showWaypointName = (marker, point, visible) => {
+  marker.unbindTooltip();
+  if (visible && point.name) {
+    marker.bindTooltip(point.name, {
+      permanent: true, direction: "top", offset: [0, -10], className: "waypoint-name-label",
+    });
+  }
+};
+
 export const createWaypointEditor = (map, getFeature, isEditing, trackPointCount, showError) => {
   let markers = [];
   let pending = null;
+  let namesVisible = false;
   const commit = () => {
     if (!pending) return true;
     const { form, point, marker } = pending;
@@ -35,6 +45,7 @@ export const createWaypointEditor = (map, getFeature, isEditing, trackPointCount
     point.elevation = value("elevation").value === "" ? null : value("elevation").valueAsNumber;
     point.coordinates = [value("longitude").valueAsNumber, value("latitude").valueAsNumber];
     marker.setLatLng([point.coordinates[1], point.coordinates[0]]);
+    showWaypointName(marker, point, namesVisible);
     return true;
   };
   const popup = (point, marker) => {
@@ -104,6 +115,7 @@ export const createWaypointEditor = (map, getFeature, isEditing, trackPointCount
       const marker = L.marker([point.coordinates[1], point.coordinates[0]], {
         draggable: isEditing(), icon: waypointIcon(), title: point.name || "Путевая точка",
       }).addTo(map);
+      showWaypointName(marker, point, namesVisible);
       marker.bindPopup(() => popup(point, marker), { maxWidth: 280 });
       marker.on("dragstart", () => { pending = null; map.closePopup(); });
       marker.on("dragend", () => {
@@ -116,6 +128,12 @@ export const createWaypointEditor = (map, getFeature, isEditing, trackPointCount
   map.on("popupclose", () => { pending = null; });
   return {
     redraw, commit,
+    setNamesVisible(visible) {
+      namesVisible = visible;
+      markers.forEach((marker, index) => {
+        showWaypointName(marker, getFeature().waypoints[index], namesVisible);
+      });
+    },
     add(latlng) {
       if (!commit()) return;
       const point = { index: null, name: "", description: "", elevation: null, coordinates: [latlng.lng, latlng.lat] };

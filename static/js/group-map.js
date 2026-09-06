@@ -1,8 +1,26 @@
-import { waypointIcon, waypointLabel } from "./waypoints.mjs";
+import { showWaypointName, waypointIcon, waypointLabel } from "./waypoints.mjs?v=labels-1";
 
 const element = document.querySelector("#group-map");
+const waypointNamesKey = "rpl-show-waypoint-names";
 if (element) {
   const map = L.map(element);
+  const namesToggle = document.querySelector("[data-waypoint-names]");
+  const waypointMarkers = [];
+  try {
+    namesToggle.checked = window.localStorage.getItem(waypointNamesKey) === "true";
+  } catch {
+    namesToggle.checked = false;
+  }
+  namesToggle.addEventListener("change", () => {
+    waypointMarkers.forEach(({ marker, point }) => {
+      showWaypointName(marker, point, namesToggle.checked);
+    });
+    try {
+      window.localStorage.setItem(waypointNamesKey, String(namesToggle.checked));
+    } catch {
+      // The toggle still works when browser storage is unavailable.
+    }
+  });
   L.tileLayer(element.dataset.tileUrl, {
     attribution: element.dataset.tileAttribution, maxZoom: 19,
   }).addTo(map);
@@ -23,9 +41,11 @@ if (element) {
           style: { color: feature.properties.color, weight: 4, opacity: 0.85 },
         }).bindPopup(link).addTo(map);
         for (const point of feature.waypoints || []) {
-          L.marker([point.coordinates[1], point.coordinates[0]], {
+          const marker = L.marker([point.coordinates[1], point.coordinates[0]], {
             icon: waypointIcon(feature.properties.color), title: point.name || "Путевая точка",
           }).bindPopup(waypointLabel(point)).addTo(layer);
+          showWaypointName(marker, point, namesToggle.checked);
+          waypointMarkers.push({ marker, point });
         }
         const trackBounds = layer.getBounds();
         if (!trackBounds.isValid()) continue;
