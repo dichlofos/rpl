@@ -304,6 +304,72 @@ class TrackTests(TestCase):
         self.assertEqual(track.owner, user)
         self.assertEqual(track.name, "Поход выходного дня")
 
+    def test_authenticated_user_can_upload_multiple_tracks(self):
+        user = get_user_model().objects.create_user("bulk-rider", password="password")
+        group = TrackGroup.objects.create(name="Expedition", owner=user)
+        self.client.force_login(user)
+
+        response = self.client.post(
+            reverse("tracks:upload"),
+            {
+                "description": "Дни одного похода",
+                "group": str(group.public_id),
+                "gpx_file": [
+                    SimpleUploadedFile("day-1.gpx", GPX),
+                    SimpleUploadedFile("day-2.gpx", GPX),
+                ],
+            },
+        )
+
+        self.assertRedirects(response, group.get_absolute_url())
+        self.assertEqual(Track.objects.filter(owner=user).count(), 2)
+        self.assertEqual(group.tracks.count(), 2)
+        self.assertEqual(
+            set(Track.objects.values_list("description", flat=True)), {"Дни одного похода"}
+        )
+
+    def test_bulk_upload_can_create_group(self):
+        user = get_user_model().objects.create_user("group-maker", password="password")
+        self.client.force_login(user)
+
+        response = self.client.post(
+            reverse("tracks:upload"),
+            {
+                "new_group_name": "Кавказ 2026",
+                "new_group_description": "По дням",
+                "gpx_file": [
+                    SimpleUploadedFile("day-1.gpx", GPX),
+                    SimpleUploadedFile("day-2.gpx", GPX),
+                ],
+            },
+        )
+
+        group = TrackGroup.objects.get(name="Кавказ 2026")
+        self.assertRedirects(response, group.get_absolute_url())
+        self.assertEqual(group.description, "По дням")
+        self.assertEqual(group.owner, user)
+        self.assertEqual(group.tracks.count(), 2)
+
+    def test_bulk_upload_rejects_all_files_if_one_is_invalid(self):
+        user = get_user_model().objects.create_user("careful-rider", password="password")
+        self.client.force_login(user)
+
+        response = self.client.post(
+            reverse("tracks:upload"),
+            {
+                "new_group_name": "Не должна появиться",
+                "gpx_file": [
+                    SimpleUploadedFile("valid.gpx", GPX),
+                    SimpleUploadedFile("broken.gpx", b"not xml"),
+                ],
+            },
+        )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, "Не удалось разобрать GPX-файл")
+        self.assertFalse(Track.objects.exists())
+        self.assertFalse(TrackGroup.objects.exists())
+
     def test_upload_page_contains_only_public_fields(self):
         user = get_user_model().objects.create_user("rider", password="password")
         self.client.force_login(user)
@@ -313,5 +379,8 @@ class TrackTests(TestCase):
         self.assertContains(response, 'name="name"')
         self.assertContains(response, 'name="description"')
         self.assertContains(response, 'name="gpx_file"')
+        self.assertContains(response, 'name="gpx_file"')
+        self.assertContains(response, "multiple")
+        self.assertContains(response, "Новая группа")
         self.assertNotContains(response, 'name="owner"')
         self.assertNotContains(response, 'name="public_id"')

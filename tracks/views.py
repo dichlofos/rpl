@@ -58,17 +58,33 @@ def track_upload(request):
         if form.is_valid():
             try:
                 with transaction.atomic():
-                    track = form.save(commit=False)
-                    track.owner = request.user
-                    track.save()
                     group = form.cleaned_data["group"]
-                    if group:
-                        assign_track(request.user, track.pk, group.pk)
+                    if form.cleaned_data["new_group_name"]:
+                        group = TrackGroup.objects.create(
+                            name=form.cleaned_data["new_group_name"],
+                            description=form.cleaned_data["new_group_description"],
+                            owner=request.user,
+                        )
+                    tracks = []
+                    files = form.cleaned_data["gpx_file"]
+                    for uploaded in files:
+                        track = Track.objects.create(
+                            name=form.cleaned_data["name"] if len(files) == 1 else "",
+                            description=form.cleaned_data["description"],
+                            gpx_file=uploaded,
+                            owner=request.user,
+                        )
+                        tracks.append(track)
+                        if group:
+                            assign_track(request.user, track.pk, group.pk)
             except ValidationError as exc:
                 form.add_error(None, exc)
             else:
-                messages.success(request, "Трек успешно загружен.")
-                return redirect(group if group else track)
+                count = len(tracks)
+                messages.success(request, f"Загружено треков: {count}.")
+                if group:
+                    return redirect(group)
+                return redirect(tracks[0] if count == 1 else "tracks:list")
     else:
         form = TrackUploadForm(user=request.user, initial={"group": request.GET.get("group")})
     return render(request, "tracks/track_upload.html", {"form": form})

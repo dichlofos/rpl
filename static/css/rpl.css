@@ -3,6 +3,8 @@ body { min-height: 100vh; }
 .track-card:hover { transform: translateY(-2px); box-shadow: 0 .5rem 1rem rgb(0 0 0 / 10%); }
 .dashboard-stat { transition: border-color .15s ease, box-shadow .15s ease; }
 .dashboard-stat[href]:hover { border-color: var(--bs-primary); box-shadow: 0 .25rem .75rem rgb(0 0 0 / 8%); }
+.new-group-dialog { width: min(92vw, 520px); }
+.new-group-dialog::backdrop { background: rgb(0 0 0 / 35%); }
 .track-table tbody tr { position: relative; }
 .track-table tbody tr:hover th,
 .track-table tbody tr:hover td { --bs-table-bg-state: var(--bs-tertiary-bg); }

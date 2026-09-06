@@ -1,6 +1,7 @@
 from typing import ClassVar
 
 from django import forms
+from django.core.validators import FileExtensionValidator
 
 from .models import Track, TrackGroup
 from .services import InvalidGPX, parse_gpx
@@ -8,15 +9,35 @@ from .services import InvalidGPX, parse_gpx
 
 class GPXValidationMixin:
     def clean_gpx_file(self):
-        uploaded = self.cleaned_data["gpx_file"]
-        if not self.instance.pk or uploaded.name != self.instance.gpx_file.name:
+        uploaded_files = self.cleaned_data["gpx_file"]
+        files = uploaded_files if isinstance(uploaded_files, list) else [uploaded_files]
+        for uploaded in files:
+            instance = getattr(self, "instance", None)
+            if instance and instance.pk and uploaded.name == instance.gpx_file.name:
+                continue
             try:
                 parse_gpx(uploaded.read(), uploaded.name)
             except InvalidGPX as exc:
                 raise forms.ValidationError(str(exc)) from exc
             finally:
                 uploaded.seek(0)
-        return uploaded
+        return uploaded_files
+
+
+class MultipleFileInput(forms.ClearableFileInput):
+    allow_multiple_selected = True
+
+
+class MultipleFileField(forms.FileField):
+    widget = MultipleFileInput
+
+    def clean(self, data, initial=None):
+        clean_one = super().clean
+        if isinstance(data, (list, tuple)):
+            if not data:
+                raise forms.ValidationError(self.error_messages["required"], code="required")
+            return [clean_one(item, initial) for item in data]
+        return [clean_one(data, initial)]
 
 
 class TrackAdminForm(GPXValidationMixin, forms.ModelForm):
@@ -37,7 +58,26 @@ class TrackAdminForm(GPXValidationMixin, forms.ModelForm):
         fields = "__all__"
 
 
-class TrackUploadForm(GPXValidationMixin, forms.ModelForm):
+class TrackUploadForm(GPXValidationMixin, forms.Form):
+    name = forms.CharField(
+        label="Название",
+        max_length=200,
+        required=False,
+        widget=forms.TextInput(
+            attrs={"class": "form-control", "placeholder": "Для загрузки одного файла"}
+        ),
+    )
+    description = forms.CharField(
+        label="Описание",
+        required=False,
+        widget=forms.Textarea(
+            attrs={
+                "class": "form-control",
+                "rows": 4,
+                "placeholder": "Общее описание для загружаемых треков",
+            }
+        ),
+    )
     group = forms.ModelChoiceField(
         label="Группа",
         queryset=TrackGroup.objects.none(),
@@ -45,6 +85,24 @@ class TrackUploadForm(GPXValidationMixin, forms.ModelForm):
         empty_label="Без группы",
         to_field_name="public_id",
         widget=forms.Select(attrs={"class": "form-select"}),
+    )
+    new_group_name = forms.CharField(
+        label="Название новой группы",
+        max_length=200,
+        required=False,
+        widget=forms.TextInput(attrs={"class": "form-control"}),
+    )
+    new_group_description = forms.CharField(
+        label="Описание новой группы",
+        required=False,
+        widget=forms.Textarea(attrs={"class": "form-control", "rows": 3}),
+    )
+    gpx_file = MultipleFileField(
+        label="GPX-файлы",
+        validators=[FileExtensionValidator(["gpx"])],
+        widget=MultipleFileInput(
+            attrs={"class": "form-control", "accept": ".gpx,application/gpx+xml"}
+        ),
     )
 
     def __init__(self, *args, user=None, **kwargs):
@@ -54,24 +112,16 @@ class TrackUploadForm(GPXValidationMixin, forms.ModelForm):
                 "name", "pk"
             )
 
-    class Meta:
-        model = Track
-        fields = ("name", "description", "gpx_file")
-        widgets: ClassVar[dict[str, forms.Widget]] = {
-            "name": forms.TextInput(
-                attrs={"class": "form-control", "placeholder": "Например, Конобеево — Коломна"}
-            ),
-            "description": forms.Textarea(
-                attrs={
-                    "class": "form-control",
-                    "rows": 4,
-                    "placeholder": "Коротко расскажите о маршруте",
-                }
-            ),
-            "gpx_file": forms.ClearableFileInput(
-                attrs={"class": "form-control", "accept": ".gpx,application/gpx+xml"}
-            ),
-        }
+    def clean(self):
+        data = super().clean()
+        files = data.get("gpx_file") or []
+        if len(files) > 1 and data.get("name"):
+            self.add_error("name", "Название можно указать только при загрузке одного файла.")
+        if data.get("group") and data.get("new_group_name"):
+            self.add_error("new_group_name", "Выберите существующую группу или создайте новую.")
+        if data.get("new_group_description") and not data.get("new_group_name"):
+            self.add_error("new_group_name", "Укажите название новой группы.")
+        return data
 
 
 class TrackGroupForm(forms.ModelForm):

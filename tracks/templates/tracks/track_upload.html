@@ -1,4 +1,5 @@
 {% extends "base.html" %}
+{% load static %}
 
 {% block title %}Загрузить GPX — RPL{% endblock %}
 
@@ -8,8 +9,8 @@
     <nav class="mb-3"><a href="{% url 'tracks:list' %}" class="text-decoration-none">← Все треки</a></nav>
     <div class="card border-0 shadow-sm">
       <div class="card-body p-4 p-md-5">
-        <h1 class="h2 mb-2">Новый трек</h1>
-        <p class="text-secondary mb-4">Загрузите GPX-файл — маршрут и статистика появятся автоматически.</p>
+        <h1 class="h2 mb-2">Загрузка треков</h1>
+        <p class="text-secondary mb-4">Выберите один или несколько GPX-файлов — маршруты и статистика появятся автоматически.</p>
 
         <form method="post" enctype="multipart/form-data" novalidate>
           {% csrf_token %}
@@ -18,30 +19,55 @@
           <div class="mb-3">
             <label class="form-label" for="{{ form.name.id_for_label }}">Название</label>
             {{ form.name }}
-            <div class="form-text">Можно не заполнять: используем название из GPX или имя файла.</div>
+            <div class="form-text">Только для одного файла. Если оставить пустым, используем название из GPX или имя файла.</div>
             {% for error in form.name.errors %}<div class="text-danger small mt-1">{{ error }}</div>{% endfor %}
           </div>
 
           <div class="mb-3">
             <label class="form-label" for="{{ form.description.id_for_label }}">Описание</label>
             {{ form.description }}
+            <div class="form-text">При загрузке нескольких файлов описание будет добавлено к каждому треку.</div>
             {% for error in form.description.errors %}<div class="text-danger small mt-1">{{ error }}</div>{% endfor %}
           </div>
 
           <div class="mb-3">
             <label class="form-label" for="{{ form.group.id_for_label }}">Группа</label>
-            {{ form.group }}
+            <div class="d-flex gap-2 align-items-start">
+              <div class="flex-grow-1">{{ form.group }}</div>
+              <button class="btn btn-outline-secondary text-nowrap" type="button" data-new-group-open>Новая группа</button>
+            </div>
+            <div class="form-text d-none" data-new-group-summary></div>
             {% for error in form.group.errors %}<div class="text-danger small mt-1">{{ error }}</div>{% endfor %}
           </div>
           <div class="mb-4">
-            <label class="form-label" for="{{ form.gpx_file.id_for_label }}">GPX-файл</label>
+            <label class="form-label" for="{{ form.gpx_file.id_for_label }}">GPX-файлы</label>
             {{ form.gpx_file }}
-            <div class="form-text">Файл с расширением .gpx, не более 10 МБ.</div>
+            <div class="form-text">Один или несколько файлов с расширением .gpx, каждый не более 10 МБ.</div>
             {% for error in form.gpx_file.errors %}<div class="text-danger small mt-1">{{ error }}</div>{% endfor %}
           </div>
 
+          <dialog class="new-group-dialog border-0 rounded-3 shadow p-0" data-new-group-dialog{% if form.new_group_name.errors or form.new_group_description.errors %} open{% endif %}>
+            <div class="p-4">
+              <h2 class="h4 mb-3">Новая группа</h2>
+              <div class="mb-3">
+                <label class="form-label" for="{{ form.new_group_name.id_for_label }}">Название</label>
+                {{ form.new_group_name }}
+                {% for error in form.new_group_name.errors %}<div class="text-danger small mt-1">{{ error }}</div>{% endfor %}
+              </div>
+              <div class="mb-4">
+                <label class="form-label" for="{{ form.new_group_description.id_for_label }}">Описание</label>
+                {{ form.new_group_description }}
+                {% for error in form.new_group_description.errors %}<div class="text-danger small mt-1">{{ error }}</div>{% endfor %}
+              </div>
+              <div class="d-flex gap-2 justify-content-end">
+                <button class="btn btn-outline-secondary" type="button" data-new-group-cancel>Отмена</button>
+                <button class="btn btn-primary" type="button" data-new-group-save>Создать при загрузке</button>
+              </div>
+            </div>
+          </dialog>
+
           <div class="d-flex gap-2">
-            <button class="btn btn-primary" type="submit">Загрузить трек</button>
+            <button class="btn btn-primary" type="submit">Загрузить</button>
             <a class="btn btn-outline-secondary" href="{% url 'tracks:list' %}">Отмена</a>
           </div>
         </form>
@@ -49,4 +75,8 @@
     </div>
   </div>
 </div>
+{% endblock %}
+
+{% block scripts %}
+  <script src="{% static 'js/track-upload.js' %}"></script>
 {% endblock %}
