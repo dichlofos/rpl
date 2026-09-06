@@ -93,11 +93,17 @@ class TrackTests(TestCase):
         self.assertContains(anonymous, "Групп всего")
         self.assertNotContains(anonymous, "Моих треков")
         self.assertContains(anonymous, f'href="{list_url}">Треки</a>')
+        self.assertNotContains(anonymous, "Открыть треки")
+        self.assertNotContains(anonymous, "Открыть группы")
+        self.assertNotContains(anonymous, "Загрузить GPX")
 
         self.client.force_login(owner)
         authenticated = self.client.get(dashboard_url)
         self.assertContains(authenticated, "Моих треков")
         self.assertContains(authenticated, "Моих групп")
+        self.assertNotContains(authenticated, "Открыть треки")
+        self.assertNotContains(authenticated, "Открыть группы")
+        self.assertContains(authenticated, "Загрузить GPX")
         self.assertEqual(authenticated.context["my_tracks_count"], 1)
         self.assertEqual(authenticated.context["my_groups_count"], 1)
 
