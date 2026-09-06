@@ -134,6 +134,14 @@ class TrackGroupForm(forms.ModelForm):
         }
 
 
+class MergeWaypointsForm(forms.Form):
+    name = forms.CharField(
+        label="Название нового трека",
+        max_length=200,
+        widget=forms.TextInput(attrs={"class": "form-control"}),
+    )
+
+
 class GroupChoiceForm(forms.Form):
     group = forms.ModelChoiceField(
         label="Группа",
@@ -168,7 +176,7 @@ class GroupAddTrackForm(forms.Form):
     def __init__(self, *args, group, **kwargs):
         super().__init__(*args, **kwargs)
         self.fields["track"].queryset = (
-            Track.objects.filter(owner_id=group.owner_id)
+            Track.objects.filter(owner_id=group.owner_id, deleted_at__isnull=True)
             .exclude(groups=group)
             .prefetch_related("groups")
             .order_by("name", "pk")

@@ -21,6 +21,11 @@ urlpatterns = [
     path("groups/<uuid:public_id>/geojson/", group_views.group_geojson, name="group-geojson"),
     path("groups/<uuid:public_id>/edit/", group_views.group_edit, name="group-edit"),
     path("groups/<uuid:public_id>/delete/", group_views.group_delete, name="group-delete"),
+    path(
+        "groups/<uuid:public_id>/merge-waypoints/",
+        group_views.group_merge_waypoints,
+        name="group-merge-waypoints",
+    ),
     path("groups/<uuid:public_id>/add/", group_views.group_add, name="group-add"),
     path(
         "groups/<uuid:public_id>/tracks/<uuid:track_id>/",

@@ -163,3 +163,69 @@ class WaypointTests(TestCase):
             ).status_code,
             403,
         )
+
+    def test_group_waypoints_are_merged_and_empty_tracks_are_soft_deleted(self):
+        mixed = self.make_track(MIXED)
+        mixed.name = "Route with camp"
+        mixed.save(update_fields=["name"])
+        waypoint_only = self.make_track(ONLY_WPT.replace(b"Camp", b"Spring"))
+        waypoint_only.name = "Only spring"
+        waypoint_only.save(update_fields=["name"])
+        group = TrackGroup.objects.create(name="Trip", owner=self.owner)
+        assign_track(self.owner, mixed.pk, group.pk)
+        assign_track(self.owner, waypoint_only.pk, group.pk)
+        with mixed.original_gpx_file.open("rb") as source:
+            mixed_original = source.read()
+        with waypoint_only.original_gpx_file.open("rb") as source:
+            waypoint_original = source.read()
+        self.client.force_login(self.owner)
+
+        response = self.client.post(
+            reverse("tracks:group-merge-waypoints", args=[group.public_id]),
+            {"name": "Все стоянки"},
+        )
+
+        self.assertRedirects(response, group.get_absolute_url())
+        mixed.refresh_from_db()
+        waypoint_only.refresh_from_db()
+        merged = Track.objects.get(name="Все стоянки")
+        self.assertIsNone(mixed.deleted_at)
+        self.assertIsNotNone(waypoint_only.deleted_at)
+        self.assertEqual(parse_gpx(_read_file(mixed.gpx_file)).waypoints_count, 0)
+        merged_gpx = gpxpy.parse(_read_file(merged.gpx_file))
+        self.assertEqual([point.name for point in merged_gpx.waypoints], ["Camp", "Spring"])
+        self.assertEqual(merged_gpx.waypoints[0].symbol, "Flag")
+        self.assertEqual(merged_gpx.waypoints[0].extensions[0].text, "keep")
+        self.assertEqual(
+            list(group.memberships.values_list("track_id", flat=True)), [mixed.pk, merged.pk]
+        )
+        self.assertEqual(_read_file(mixed.original_gpx_file), mixed_original)
+        self.assertEqual(_read_file(waypoint_only.original_gpx_file), waypoint_original)
+        track_list = self.client.get(reverse("tracks:list"))
+        self.assertNotContains(track_list, "Only spring")
+        self.assertContains(track_list, "Все стоянки")
+        self.assertEqual(self.client.get(reverse("tracks:dashboard")).context["tracks_count"], 2)
+        group_list = self.client.get(reverse("tracks:group-list"))
+        listed_group = next(item for item in group_list.context["groups"] if item.pk == group.pk)
+        self.assertEqual(listed_group.track_count, 2)
+
+    def test_merge_waypoints_requires_points_and_group_owner(self):
+        route = self.make_track(GPX)
+        group = TrackGroup.objects.create(name="Route", owner=self.owner)
+        assign_track(self.owner, route.pk, group.pk)
+        url = reverse("tracks:group-merge-waypoints", args=[group.public_id])
+        self.client.force_login(self.owner)
+        response = self.client.post(url, {"name": "Points"})
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, "нет маршрутных точек")
+        self.assertEqual(Track.objects.count(), 1)
+        self.client.force_login(get_user_model().objects.create_user("outsider"))
+        self.assertEqual(self.client.get(url).status_code, 403)
+
+
+def _read_file(field):
+    field.open("rb")
+    try:
+        return field.read()
+    finally:
+        field.close()

@@ -9,13 +9,21 @@ from .permissions import can_manage
 @admin.register(Track)
 class TrackAdmin(admin.ModelAdmin):
     form = TrackAdminForm
-    list_display = ("name", "distance_km_display", "points_count", "owner", "uploaded_at")
-    list_filter = ("uploaded_at",)
+    list_display = (
+        "name",
+        "distance_km_display",
+        "points_count",
+        "owner",
+        "uploaded_at",
+        "deleted_at",
+    )
+    list_filter = ("uploaded_at", "deleted_at")
     search_fields = ("name", "description")
     readonly_fields = (
         "original_gpx_file",
         "group_management",
         "uploaded_at",
+        "deleted_at",
         "distance_m",
         "elevation_gain_m",
         "elevation_loss_m",

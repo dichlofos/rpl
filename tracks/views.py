@@ -36,19 +36,21 @@ def with_primary_regions(queryset):
 
 def dashboard(request):
     context = {
-        "tracks_count": Track.objects.count(),
+        "tracks_count": Track.objects.filter(deleted_at__isnull=True).count(),
         "groups_count": TrackGroup.objects.count(),
     }
     if request.user.is_authenticated:
         context.update(
-            my_tracks_count=Track.objects.filter(owner=request.user).count(),
+            my_tracks_count=Track.objects.filter(
+                owner=request.user, deleted_at__isnull=True
+            ).count(),
             my_groups_count=TrackGroup.objects.filter(owner=request.user).count(),
         )
     return render(request, "tracks/dashboard.html", context)
 
 
 def track_list(request):
-    tracks = Track.objects.only(
+    tracks = Track.objects.filter(deleted_at__isnull=True).only(
         "name",
         "public_id",
         "description",

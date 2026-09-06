@@ -1,0 +1,29 @@
+{% extends "base.html" %}
+{% block title %}Объединить маршрутные точки — RPL{% endblock %}
+{% block content %}
+<div class="row justify-content-center"><div class="col-lg-7">
+  <nav class="mb-3"><a href="{{ group.get_absolute_url }}" class="text-decoration-none">← К группе</a></nav>
+  <div class="card border-0 shadow-sm">
+    <div class="card-body p-4 p-md-5">
+      <h1 class="h3">Объединить маршрутные точки</h1>
+      <p>
+        Все <code>wpt</code> из текущих версий треков группы «{{ group }}» будут перенесены
+        в один новый трек. У треков с линией маршрута точки будут удалены, а треки,
+        состоящие только из <code>wpt</code>, будут помечены удалёнными и скрыты из списка.
+      </p>
+      <p class="text-secondary">Архивные оригиналы GPX останутся без изменений.</p>
+      <form method="post" novalidate>
+        {% csrf_token %}
+        {% for error in form.non_field_errors %}<div class="alert alert-danger">{{ error }}</div>{% endfor %}
+        <div class="mb-4">
+          <label class="form-label" for="{{ form.name.id_for_label }}">{{ form.name.label }}</label>
+          {{ form.name }}
+          {% for error in form.name.errors %}<div class="text-danger small mt-1">{{ error }}</div>{% endfor %}
+        </div>
+        <button class="btn btn-primary" type="submit">Объединить точки</button>
+        <a class="btn btn-outline-secondary" href="{{ group.get_absolute_url }}">Отмена</a>
+      </form>
+    </div>
+  </div>
+</div></div>
+{% endblock %}

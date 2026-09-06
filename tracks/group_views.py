@@ -2,15 +2,16 @@ from django.conf import settings
 from django.contrib import messages
 from django.contrib.auth.decorators import login_required
 from django.core.exceptions import ValidationError
-from django.db.models import Count
+from django.db.models import Count, Q
 from django.http import JsonResponse
 from django.shortcuts import get_object_or_404, redirect, render
 from django.views.decorators.http import require_GET, require_http_methods, require_POST
 
-from .forms import GroupAddTrackForm, TrackGroupForm
+from .forms import GroupAddTrackForm, MergeWaypointsForm, TrackGroupForm
 from .group_services import assign_track, delete_group, move_track
 from .models import Track, TrackGroup
 from .permissions import can_manage, require_manage
+from .waypoint_services import merge_group_waypoints
 
 # Keep the list and map colours identical, independently of loading order.
 GROUP_COLORS = ("#dc3545", "#0d6efd", "#198754", "#6f42c1", "#b65c00", "#087e8b", "#c02983")
@@ -23,13 +24,17 @@ def group_entries(group):
             "position": index + 1,
             "color": GROUP_COLORS[index % len(GROUP_COLORS)],
         }
-        for index, link in enumerate(group.memberships.select_related("track"))
+        for index, link in enumerate(
+            group.memberships.select_related("track").filter(track__deleted_at__isnull=True)
+        )
     ]
 
 
 @require_GET
 def group_list(request):
-    groups = TrackGroup.objects.annotate(track_count=Count("tracks")).select_related("owner")
+    groups = TrackGroup.objects.annotate(
+        track_count=Count("tracks", filter=Q(tracks__deleted_at__isnull=True))
+    ).select_related("owner")
     return render(request, "tracks/group_list.html", {"groups": groups})
 
 
@@ -138,6 +143,34 @@ def group_delete(request, public_id):
         messages.success(request, "Группа удалена. Все треки сохранены.")
         return redirect("tracks:group-list")
     return render(request, "tracks/group_delete.html", {"group": group})
+
+
+@login_required
+@require_http_methods(["GET", "POST"])
+def group_merge_waypoints(request, public_id):
+    group = get_object_or_404(TrackGroup, public_id=public_id)
+    require_manage(request.user, group)
+    initial = {"name": f"Маршрутные точки — {group.name}"}
+    form = MergeWaypointsForm(request.POST if request.method == "POST" else None, initial=initial)
+    if request.method == "POST" and form.is_valid():
+        try:
+            merged, modified_count, deleted_count = merge_group_waypoints(
+                request.user, group.pk, form.cleaned_data["name"]
+            )
+        except ValidationError as exc:
+            form.add_error(None, exc)
+        else:
+            messages.success(
+                request,
+                f"Создан трек «{merged.name}». Обновлено треков: {modified_count}, "
+                f"помечено удалёнными: {deleted_count}.",
+            )
+            return redirect(group)
+    return render(
+        request,
+        "tracks/group_merge_waypoints.html",
+        {"group": group, "form": form},
+    )
 
 
 @login_required

@@ -11,6 +11,7 @@ from django.core.files.base import ContentFile
 from django.core.validators import FileExtensionValidator
 from django.db import transaction
 from django.urls import reverse
+from django.utils import timezone
 
 from .services import InvalidGPX, line_segments, parse_gpx
 
@@ -48,6 +49,7 @@ class Track(models.Model):
         blank=True,
     )
     uploaded_at = models.DateTimeField("загружен", auto_now_add=True)
+    deleted_at = models.DateTimeField("удалён", null=True, blank=True, editable=False)
     distance_m = models.FloatField("дистанция, м", default=0, editable=False)
     elevation_gain_m = models.FloatField("набор высоты, м", default=0, editable=False)
     elevation_loss_m = models.FloatField("сброс высоты, м", default=0, editable=False)
@@ -80,6 +82,13 @@ class Track(models.Model):
 
     def get_absolute_url(self):
         return reverse("tracks:detail", kwargs={"public_id": self.public_id})
+
+    def soft_delete(self):
+        if self.deleted_at is not None:
+            return
+        self.deleted_at = timezone.now()
+        self.save(update_fields=["deleted_at"])
+        self.group_memberships.all().delete()
 
     def _parse_file(self):
         should_close = self.gpx_file._committed

@@ -9,6 +9,7 @@
   {% if can_edit %}
     <div class="d-flex gap-2">
       <a class="btn btn-sm btn-outline-secondary" href="{% url 'tracks:group-edit' group.public_id %}">Редактировать</a>
+      <a class="btn btn-sm btn-outline-primary" href="{% url 'tracks:group-merge-waypoints' group.public_id %}">Объединить маршрутные точки</a>
       <a class="btn btn-sm btn-outline-danger" href="{% url 'tracks:group-delete' group.public_id %}">Удалить группу</a>
     </div>
   {% endif %}
