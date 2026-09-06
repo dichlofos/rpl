@@ -24,7 +24,11 @@ from .services import InvalidGPX, edit_gpx
 
 
 def with_primary_regions(queryset):
-    primary_regions = TrackRegion.objects.filter(is_primary=True).select_related("region")
+    primary_regions = (
+        TrackRegion.objects.filter(is_primary=True)
+        .select_related("region")
+        .only("track_id", "region_id", "region__name")
+    )
     return queryset.prefetch_related(
         Prefetch("region_links", queryset=primary_regions, to_attr="primary_regions")
     )
@@ -44,10 +48,21 @@ def dashboard(request):
 
 
 def track_list(request):
+    tracks = Track.objects.only(
+        "name",
+        "public_id",
+        "description",
+        "distance_m",
+        "elevation_gain_m",
+        "duration_s",
+        "points_count",
+        "waypoints_count",
+        "uploaded_at",
+    )
     return render(
         request,
         "tracks/track_list.html",
-        {"tracks": with_primary_regions(Track.objects.all())},
+        {"tracks": with_primary_regions(tracks)},
     )
 
 

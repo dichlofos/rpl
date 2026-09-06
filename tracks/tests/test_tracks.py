@@ -76,6 +76,10 @@ class TrackTests(TestCase):
         self.assertEqual(geojson_response.status_code, 200)
         self.assertEqual(geojson_response.json()["properties"]["name"], "Test route")
 
+        listed_track = list_response.context["tracks"][0]
+        self.assertIn("geojson", listed_track.get_deferred_fields())
+        self.assertIn("geometry", listed_track.get_deferred_fields())
+
     def test_dashboard_and_track_list_have_separate_urls(self):
         owner = get_user_model().objects.create_user("dashboard-owner")
         owned = self.make_track()
