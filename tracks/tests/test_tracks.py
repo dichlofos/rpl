@@ -312,6 +312,12 @@ class TrackTests(TestCase):
         user = get_user_model().objects.create_user("bulk-rider", password="password")
         group = TrackGroup.objects.create(name="Expedition", owner=user)
         self.client.force_login(user)
+        late_gpx = GPX.replace(b"Test route", b"Day 2").replace(
+            b"2026-08-09", b"2026-08-11"
+        )
+        early_gpx = GPX.replace(b"Test route", b"Day 1").replace(
+            b"2026-08-09", b"2026-08-10"
+        )
 
         response = self.client.post(
             reverse("tracks:upload"),
@@ -319,8 +325,8 @@ class TrackTests(TestCase):
                 "description": "Дни одного похода",
                 "group": str(group.public_id),
                 "gpx_file": [
-                    SimpleUploadedFile("day-1.gpx", GPX),
-                    SimpleUploadedFile("day-2.gpx", GPX),
+                    SimpleUploadedFile("day-2.gpx", late_gpx),
+                    SimpleUploadedFile("day-1.gpx", early_gpx),
                 ],
             },
         )
@@ -328,6 +334,9 @@ class TrackTests(TestCase):
         self.assertRedirects(response, group.get_absolute_url())
         self.assertEqual(Track.objects.filter(owner=user).count(), 2)
         self.assertEqual(group.tracks.count(), 2)
+        self.assertEqual(
+            list(group.memberships.values_list("track__name", flat=True)), ["Day 1", "Day 2"]
+        )
         self.assertEqual(
             set(Track.objects.values_list("description", flat=True)), {"Дни одного похода"}
         )

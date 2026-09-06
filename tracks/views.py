@@ -92,7 +92,16 @@ def track_upload(request):
                             owner=request.user,
                         )
                         tracks.append(track)
-                        if group:
+                    if group:
+                        ordered_tracks = sorted(
+                            enumerate(tracks),
+                            key=lambda item: (
+                                item[1].started_at is None,
+                                item[1].started_at.timestamp() if item[1].started_at else 0,
+                                item[0],
+                            ),
+                        )
+                        for _, track in ordered_tracks:
                             assign_track(request.user, track.pk, group.pk)
             except ValidationError as exc:
                 form.add_error(None, exc)
