@@ -7,7 +7,11 @@ from PIL import Image, ImageDraw
 from lrpl.calibration import evaluate_time_offset, suggest_time_offsets
 from lrpl.metadata import parse_exif_datetime, read_photo, scan_directory
 from lrpl.probe import build_report
-from lrpl.similarity import group_similar_photos, hamming_distance
+from lrpl.similarity import (
+    group_similar_photos,
+    group_temporal_episodes,
+    hamming_distance,
+)
 from lrpl.timeline import interpolate_position, read_gpx_timeline
 
 
@@ -38,7 +42,8 @@ def test_read_photo_extracts_metadata_and_fingerprints(tmp_path):
     assert photo.captured_at.isoformat() == "2026-07-18T12:00:00"
     assert not photo.timezone_explicit
     assert photo.camera == "Test Camera"
-    assert len(photo.perceptual_hash) == 64
+    assert len(photo.difference_hash) == 64
+    assert len(photo.perceptual_hash) == 16
     assert photo.sharpness > 0
 
 
@@ -101,11 +106,33 @@ def test_similarity_groups_recompressed_and_shifted_photos(tmp_path):
     make_jpeg(other, captured_at="2026:07:18 14:00:00", shift=60)
     photos = [read_photo(path) for path in (first, second, other)]
 
-    assert hamming_distance(photos[0].perceptual_hash, photos[1].perceptual_hash) <= 24
+    assert hamming_distance(photos[0].difference_hash, photos[1].difference_hash) <= 24
     stacks = group_similar_photos(photos)
 
     assert sorted(len(stack.photos) for stack in stacks) == [1, 2]
+    assert stacks[0].kind == "visual"
     assert stacks[0].sharpest in stacks[0].photos
+
+
+def test_temporal_episodes_use_gaps_between_consecutive_photos(tmp_path):
+    paths = [tmp_path / f"photo-{index}.jpg" for index in range(4)]
+    for path, captured_at in zip(
+        paths,
+        (
+            "2026:07:18 12:00:00",
+            "2026:07:18 12:00:06",
+            "2026:07:18 12:00:15",
+            "2026:07:18 12:00:30",
+        ),
+        strict=True,
+    ):
+        make_jpeg(path, captured_at=captured_at)
+    photos = [read_photo(path) for path in paths]
+
+    episodes = group_temporal_episodes(photos, gap_seconds=10)
+
+    assert [len(episode.photos) for episode in episodes] == [3, 1]
+    assert episodes[0].duration_seconds == 15
 
 
 def test_probe_suggests_offsets_per_camera(tmp_path):
@@ -129,6 +156,7 @@ def test_probe_suggests_offsets_per_camera(tmp_path):
     assert calibration["camera"] == "Test Camera"
     assert calibration["offset_suggestions"][0]["offset"] == "-03:00"
     assert report["photos"][0]["source_format"] == "JPEG"
+    assert report["analysis"]["perceptual_hash"] == "phash-64-dct-v1"
 
 
 def test_timeline_preserves_segments_and_interpolates(tmp_path):

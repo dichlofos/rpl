@@ -1,13 +1,19 @@
 import hashlib
+import math
 import re
+import statistics
 from dataclasses import asdict, dataclass
 from datetime import datetime, timedelta, timezone
+from functools import cache
 from pathlib import Path
 
 from PIL import Image, ImageFilter, ImageOps, ImageStat
 
 JPEG_SUFFIXES = {".jpg", ".jpeg"}
 JPEG_FORMATS = {"JPEG", "MPO"}
+DIFFERENCE_HASH_VERSION = "dhash-256-v1"
+PERCEPTUAL_HASH_VERSION = "phash-64-dct-v1"
+SHARPNESS_VERSION = "edge-variance-v1"
 
 TAG_MAKE = 271
 TAG_MODEL = 272
@@ -45,6 +51,7 @@ class PhotoMetadata:
     camera: str
     latitude: float | None
     longitude: float | None
+    difference_hash: str
     perceptual_hash: str
     sharpness: float
 
@@ -164,6 +171,47 @@ def difference_hash(image, size=16):
     return f"{value:0{size * size // 4}x}"
 
 
+@cache
+def _dct_cosines(sample_size, hash_size):
+    return tuple(
+        tuple(
+            math.cos(math.pi * (2 * coordinate + 1) * frequency / (2 * sample_size))
+            for coordinate in range(sample_size)
+        )
+        for frequency in range(hash_size)
+    )
+
+
+def perceptual_hash(image, hash_size=8, high_frequency_factor=4):
+    """Return a compact DCT pHash without requiring NumPy or SciPy."""
+    sample_size = hash_size * high_frequency_factor
+    grayscale = image.convert("L").resize((sample_size, sample_size), RESAMPLING.LANCZOS)
+    pixels = list(grayscale.getdata())
+    cosines = _dct_cosines(sample_size, hash_size)
+    row_coefficients = [
+        [
+            sum(
+                pixels[row * sample_size + column] * cosines[frequency][column]
+                for column in range(sample_size)
+            )
+            for frequency in range(hash_size)
+        ]
+        for row in range(sample_size)
+    ]
+    coefficients = [
+        sum(
+            row_coefficients[row][horizontal] * cosines[vertical][row] for row in range(sample_size)
+        )
+        for vertical in range(hash_size)
+        for horizontal in range(hash_size)
+    ]
+    median = statistics.median(coefficients[1:])
+    value = 0
+    for index, coefficient in enumerate(coefficients):
+        value = (value << 1) | (index != 0 and coefficient > median)
+    return f"{value:0{hash_size * hash_size // 4}x}"
+
+
 def sharpness_score(image, max_side=512):
     grayscale = image.convert("L")
     grayscale.thumbnail((max_side, max_side), RESAMPLING.LANCZOS)
@@ -207,7 +255,8 @@ def read_photo(path):
             oriented = ImageOps.exif_transpose(source)
             oriented.load()
             width, height = oriented.size
-            perceptual_hash = difference_hash(oriented)
+            dhash = difference_hash(oriented)
+            phash = perceptual_hash(oriented)
             sharpness = sharpness_score(oriented)
     except InvalidPhoto:
         raise
@@ -225,7 +274,8 @@ def read_photo(path):
         camera=" ".join(camera_parts) or "unknown-camera",
         latitude=latitude,
         longitude=longitude,
-        perceptual_hash=perceptual_hash,
+        difference_hash=dhash,
+        perceptual_hash=phash,
         sharpness=sharpness,
     )
 
