@@ -82,3 +82,21 @@ class CenterClient:
             )
             results.extend(response["results"])
         return results
+
+    def register_photo_batch(self, report_id, client_id, name, calibration, photos):
+        report_id = quote(str(report_id), safe="")
+        combined = {"batch": None, "photos": []}
+        chunks = [photos[start : start + 10_000] for start in range(0, len(photos), 10_000)]
+        for chunk in chunks or [[]]:
+            response = self.request(
+                f"api/reports/{report_id}/photo-batches/",
+                payload={
+                    "client_id": client_id,
+                    "name": name,
+                    "calibration": calibration,
+                    "photos": chunk,
+                },
+            )
+            combined["batch"] = response["batch"]
+            combined["photos"].extend(response["photos"])
+        return combined

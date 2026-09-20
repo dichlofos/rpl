@@ -72,6 +72,8 @@ class PhotoClockMetadata:
     captured_at: datetime | None
     timezone_explicit: bool
     camera: str
+    latitude: float | None
+    longitude: float | None
 
 
 @dataclass(frozen=True)
@@ -190,11 +192,14 @@ def _clock_metadata(path, source):
         )
         if value and str(value).strip()
     ]
+    latitude, longitude = _gps_coordinates(exif)
     return PhotoClockMetadata(
         path=Path(path),
         captured_at=captured_at,
         timezone_explicit=timezone_explicit,
         camera=" ".join(camera_parts) or "unknown-camera",
+        latitude=latitude,
+        longitude=longitude,
     )
 
 
@@ -268,9 +273,7 @@ def read_photo(path):
             if source.format not in JPEG_FORMATS:
                 raise InvalidPhoto("Поддерживаются только JPEG и JPEG/MPO-файлы.")
             source_format = source.format
-            exif = source.getexif()
             clock = _clock_metadata(path, source)
-            latitude, longitude = _gps_coordinates(exif)
             oriented = ImageOps.exif_transpose(source)
             oriented.load()
             width, height = oriented.size
@@ -291,8 +294,8 @@ def read_photo(path):
         captured_at=clock.captured_at,
         timezone_explicit=clock.timezone_explicit,
         camera=clock.camera,
-        latitude=latitude,
-        longitude=longitude,
+        latitude=clock.latitude,
+        longitude=clock.longitude,
         difference_hash=dhash,
         perceptual_hash=phash,
         sharpness=sharpness,

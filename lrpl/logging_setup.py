@@ -19,7 +19,7 @@ def state_directory():
         root = Path(os.getenv("LOCALAPPDATA") or Path.home() / "AppData" / "Local")
         return root / "LRPL"
     if system == "Darwin":
-        return Path.home() / "Library" / "Logs" / "LRPL"
+        return Path.home() / "Library" / "Application Support" / "LRPL"
     return Path(os.getenv("XDG_STATE_HOME") or Path.home() / ".local" / "state") / "lrpl"
 
 

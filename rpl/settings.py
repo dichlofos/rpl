@@ -60,6 +60,7 @@ INSTALLED_APPS = [
     "regions",
     "tracks",
     "reports",
+    "photos",
 ]
 
 MIDDLEWARE = [

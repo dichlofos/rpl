@@ -13,8 +13,8 @@ from urllib.parse import parse_qs, urlparse
 
 from .calibration import suggest_time_offsets
 from .center import CenterClient, CenterError
+from .index import LocalIndex
 from .logging_setup import product_event, setup_logging
-from .metadata import scan_photo_clocks
 
 MAX_FORM_SIZE = 1024 * 1024
 
@@ -69,11 +69,12 @@ class CameraCalibration:
 
 
 class AppState:
-    def __init__(self, photo_root, photos, failures, *, center_url=""):
+    def __init__(self, photo_root, photos, failures, *, center_url="", index=None):
         self.photo_root = Path(photo_root).resolve()
         self.photos = tuple(photos)
         self.failures = tuple(failures)
         self.center_url = center_url
+        self.index = index
         self.client = None
         self.reports = []
         self.selected_report_id = None
@@ -141,14 +142,34 @@ class AppState:
         }
         items = []
         photo_by_id = {}
-        for index, photo in enumerate(self.photos):
-            if photo.captured_at is None:
-                continue
-            identifier = f"p{index}"
-            moment = normalized_time(photo.captured_at, offsets[photo.camera])
-            items.append({"id": identifier, "captured_at": moment.isoformat()})
-            photo_by_id[identifier] = (photo, moment)
-        results = self.client.interpolate_positions(
+        local_results = []
+        for photo in self.photos:
+            moment = (
+                normalized_time(photo.captured_at, offsets[photo.camera])
+                if photo.captured_at
+                else None
+            )
+            photo_by_id[photo.id] = (photo, moment)
+            if photo.latitude is not None and photo.longitude is not None:
+                local_results.append(
+                    {
+                        "id": photo.id,
+                        "status": "matched",
+                        "position": {
+                            "latitude": photo.latitude,
+                            "longitude": photo.longitude,
+                            "elevation": None,
+                            "method": "exif",
+                        },
+                    }
+                )
+            elif moment is not None:
+                items.append({"id": photo.id, "captured_at": moment.isoformat()})
+            else:
+                local_results.append(
+                    {"id": photo.id, "status": "invalid", "reason": "missing_time"}
+                )
+        results = local_results + self.client.interpolate_positions(
             self.selected_report_id, items, max_gap_seconds=max_gap_seconds
         )
         enriched = []
@@ -161,26 +182,89 @@ class AppState:
                     "camera": photo.camera,
                     "captured_at": photo.captured_at,
                     "normalized_at": moment,
+                    "normalized_at_iso": moment.isoformat() if moment else None,
+                    "api_result": result,
                 }
             )
-        for photo in self.photos:
-            if photo.captured_at is None:
-                enriched.append(
-                    {
-                        "id": "",
-                        "status": "invalid",
-                        "reason": "missing_time",
-                        "path": str(photo.path.relative_to(self.photo_root)),
-                        "camera": photo.camera,
-                        "captured_at": None,
-                        "normalized_at": None,
-                    }
-                )
         order = {"ambiguous": 0, "unmatched": 1, "invalid": 2, "matched": 3}
         enriched.sort(key=lambda item: (order.get(item["status"], 9), item["path"]))
         with self.lock:
             self.results = enriched
+        calibration = dict(offsets)
+        if self.index is not None:
+            batch_id = self.index.save_results(
+                self.photo_root,
+                self.selected_report_id,
+                calibration,
+                self.photos,
+                enriched,
+            )
+            result_by_id = {item["id"]: item for item in enriched}
+            server_photos = [
+                self._server_photo(photo, offsets[photo.camera], result_by_id[photo.id])
+                for photo in self.photos
+            ]
+            response = self.client.register_photo_batch(
+                self.selected_report_id,
+                batch_id,
+                self.photo_root.name,
+                calibration,
+                server_photos,
+            )
+            self.index.save_server_response(batch_id, response)
+            keys = {item["client_id"]: item["photo_key"] for item in response["photos"]}
+            for item in enriched:
+                item["photo_key"] = keys.get(item["id"])
         return Counter(item["status"] for item in enriched)
+
+    @staticmethod
+    def _server_photo(photo, offset, result):
+        api_result = result["api_result"]
+        position = api_result.get("position")
+        placement = None
+        if position and position.get("method") == "exif":
+            placement = {
+                "source": "exif",
+                "longitude": position["longitude"],
+                "latitude": position["latitude"],
+                "elevation": position.get("elevation"),
+                "details": {},
+                "confirmed": False,
+            }
+        elif position:
+            placement = {
+                "source": "track",
+                "longitude": position["longitude"],
+                "latitude": position["latitude"],
+                "elevation": position.get("elevation"),
+                "track_id": position["track_id"],
+                "algorithm_version": 1,
+                "details": {
+                    key: value
+                    for key, value in position.items()
+                    if key
+                    not in {
+                        "longitude",
+                        "latitude",
+                        "elevation",
+                        "track_id",
+                        "track_name",
+                    }
+                },
+                "confirmed": False,
+            }
+        return {
+            "client_id": photo.id,
+            "relative_path": photo.relative_path,
+            "file_size": photo.file_size,
+            "file_mtime_ns": photo.file_mtime_ns,
+            "captured_at_raw": photo.captured_at.isoformat() if photo.captured_at else "",
+            "timezone_explicit": photo.timezone_explicit,
+            "time_offset_seconds": offset,
+            "captured_at_normalized": result["normalized_at_iso"],
+            "camera": photo.camera,
+            "placement": placement,
+        }
 
 
 def esc(value):
@@ -269,6 +353,7 @@ def results_table(state):
         reason = item.get("reason") or position.get("method", "")
         rows.append(
             f'<tr><td class="{esc(item["status"])}">{esc(item["status"])}</td>'
+            f"<td><code>{esc(item.get('photo_key') or '—')}</code></td>"
             f"<td><code>{esc(item['path'])}</code></td><td>{esc(item['camera'])}</td>"
             f"<td>{esc(item['normalized_at'] or '—')}</td><td>{esc(reason)}</td>"
             f"<td>{esc(coordinates)}</td></tr>"
@@ -279,7 +364,7 @@ def results_table(state):
         else ""
     )
     return f"""<section class="card"><h2>3. Результат</h2><p class="summary">{summary}</p>{truncated}
-<table><thead><tr><th>Статус</th><th>Файл</th><th>Камера</th><th>UTC</th><th>Причина</th><th>Координаты</th></tr></thead>
+<table><thead><tr><th>Статус</th><th>Ключ</th><th>Файл</th><th>Камера</th><th>UTC</th><th>Причина</th><th>Координаты</th></tr></thead>
 <tbody>{"".join(rows)}</tbody></table></section>"""
 
 
@@ -398,8 +483,9 @@ def main(argv=None):
     photo_root = args.directory.resolve()
     logger, events_path = setup_logging()
     logger.info("Scanning photo clocks in %s", photo_root)
-    photos, failures = scan_photo_clocks(photo_root)
-    state = AppState(photo_root, photos, failures, center_url=args.center_url)
+    index = LocalIndex(events_path.parent / "lrpl.sqlite3")
+    photos, failures = index.scan(photo_root)
+    state = AppState(photo_root, photos, failures, center_url=args.center_url, index=index)
     product_event(events_path, "photo_clocks_scanned", photos=len(photos), failures=len(failures))
     server = ThreadingHTTPServer(
         ("127.0.0.1", args.port), handler_class(state, logger, events_path)
@@ -415,4 +501,5 @@ def main(argv=None):
         logging.getLogger("lrpl").info("LRPL stopped by user")
     finally:
         server.server_close()
+        index.close()
     return 0

@@ -5,7 +5,8 @@ from pathlib import Path
 import pytest
 
 from lrpl.center import CenterClient
-from lrpl.metadata import PhotoClockMetadata, scan_photo_clocks
+from lrpl.index import LocalIndex
+from lrpl.metadata import scan_photo_clocks
 from lrpl.webapp import AppState, format_offset, normalized_time, page, parse_offset
 from tests.test_lrpl_probe import make_jpeg
 
@@ -37,6 +38,7 @@ class FakeOpener:
 class FakeCenter:
     def __init__(self):
         self.items = None
+        self.batch = None
 
     def report_timelines(self, report_id):
         assert report_id == "report-1"
@@ -61,10 +63,31 @@ class FakeCenter:
                     "latitude": 50.0,
                     "longitude": 80.0,
                     "method": "interpolated",
+                    "track_id": "1aa16638-a09a-4636-9a22-4fc051f60623",
                 },
             }
             for item in items
         ]
+
+    def register_photo_batch(self, report_id, client_id, name, calibration, photos):
+        self.batch = {
+            "report_id": report_id,
+            "client_id": client_id,
+            "name": name,
+            "calibration": calibration,
+            "photos": photos,
+        }
+        return {
+            "batch": {"id": "server-batch", "client_id": client_id},
+            "photos": [
+                {
+                    "id": f"server-{photo['client_id']}",
+                    "client_id": photo["client_id"],
+                    "photo_key": "4c7f1234",
+                }
+                for photo in photos
+            ],
+        }
 
 
 def test_center_client_uses_bearer_and_refuses_remote_plain_http():
@@ -95,6 +118,31 @@ def test_center_client_chunks_large_interpolation_request():
     assert len(second_body["items"]) == 1
 
 
+def test_center_client_chunks_large_photo_batch_request():
+    opener = FakeOpener(
+        [
+            {
+                "batch": {"id": "server-batch", "client_id": "local-batch"},
+                "photos": [{"client_id": "first"}],
+            },
+            {
+                "batch": {"id": "server-batch", "client_id": "local-batch"},
+                "photos": [{"client_id": "last"}],
+            },
+        ]
+    )
+    client = CenterClient("http://127.0.0.1:8000/", "rpl_identifier_secret", opener=opener)
+    photos = [{"client_id": str(index)} for index in range(10_001)]
+
+    result = client.register_photo_batch("report", "local-batch", "Photos", {}, photos)
+
+    assert result["batch"]["id"] == "server-batch"
+    assert result["photos"] == [{"client_id": "first"}, {"client_id": "last"}]
+    assert len(opener.requests) == 2
+    assert len(json.loads(opener.requests[0][0].data)["photos"]) == 10_000
+    assert len(json.loads(opener.requests[1][0].data)["photos"]) == 1
+
+
 def test_lightweight_clock_scan_reads_exif_without_full_analysis(tmp_path):
     make_jpeg(tmp_path / "photo.jpg", captured_at="2026:07:18 12:05:00")
 
@@ -107,13 +155,11 @@ def test_lightweight_clock_scan_reads_exif_without_full_analysis(tmp_path):
 
 
 def test_state_suggests_offset_and_sends_normalized_utc(tmp_path):
-    photo = PhotoClockMetadata(
-        path=tmp_path / "photo.jpg",
-        captured_at=datetime(2026, 7, 18, 12, 5),  # noqa: DTZ001 - camera wall time
-        timezone_explicit=False,
-        camera="Camera",
-    )
-    state = AppState(tmp_path, [photo], [])
+    index = LocalIndex(tmp_path / "state" / "lrpl.sqlite3")
+    make_jpeg(tmp_path / "photo.jpg", captured_at="2026:07:18 12:05:00")
+    indexed, _ = index.scan(tmp_path)
+    photo = indexed[0]
+    state = AppState(tmp_path, [photo], [], index=index)
     center = FakeCenter()
     state.client = center
     state.reports = [{"id": "report-1", "name": "Trip", "track_count": 1}]
@@ -125,6 +171,10 @@ def test_state_suggests_offset_and_sends_normalized_utc(tmp_path):
     assert counts == {"matched": 1}
     assert center.items[0]["captured_at"] == "2026-07-18T09:05:00+00:00"
     assert state.results[0]["path"] == "photo.jpg"
+    assert state.results[0]["photo_key"] == "4c7f1234"
+    assert center.batch["photos"][0]["time_offset_seconds"] == -10_800
+    assert center.batch["photos"][0]["placement"]["source"] == "track"
+    index.close()
 
 
 def test_offsets_and_explicit_timezone_normalization():
