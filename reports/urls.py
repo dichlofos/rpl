@@ -10,4 +10,9 @@ urlpatterns = [
         views.report_timeline,
         name="track-timelines",
     ),
+    path(
+        "reports/<uuid:public_id>/interpolate-positions/",
+        views.interpolate_positions,
+        name="interpolate-positions",
+    ),
 ]
