@@ -67,6 +67,14 @@ class PhotoMetadata:
 
 
 @dataclass(frozen=True)
+class PhotoClockMetadata:
+    path: Path
+    captured_at: datetime | None
+    timezone_explicit: bool
+    camera: str
+
+
+@dataclass(frozen=True)
 class ScanFailure:
     path: Path
     error: str
@@ -160,6 +168,36 @@ def _nested_exif(exif):
     return result if isinstance(result, dict) else {}
 
 
+def _clock_metadata(path, source):
+    exif = source.getexif()
+    details = _nested_exif(exif)
+    captured_at, timezone_explicit = parse_exif_datetime(
+        details.get(TAG_DATETIME_ORIGINAL)
+        or exif.get(TAG_DATETIME_ORIGINAL)
+        or exif.get(TAG_DATETIME),
+        details.get(TAG_OFFSET_TIME_ORIGINAL)
+        or exif.get(TAG_OFFSET_TIME_ORIGINAL)
+        or details.get(TAG_OFFSET_TIME)
+        or exif.get(TAG_OFFSET_TIME),
+        details.get(TAG_SUBSEC_TIME_ORIGINAL) or exif.get(TAG_SUBSEC_TIME_ORIGINAL),
+    )
+    camera_parts = [
+        str(value).strip()
+        for value in (
+            exif.get(TAG_MAKE),
+            exif.get(TAG_MODEL),
+            details.get(TAG_BODY_SERIAL_NUMBER) or exif.get(TAG_BODY_SERIAL_NUMBER),
+        )
+        if value and str(value).strip()
+    ]
+    return PhotoClockMetadata(
+        path=Path(path),
+        captured_at=captured_at,
+        timezone_explicit=timezone_explicit,
+        camera=" ".join(camera_parts) or "unknown-camera",
+    )
+
+
 def difference_hash(image, size=16):
     grayscale = image.convert("L").resize((size + 1, size), RESAMPLING.LANCZOS)
     pixels = list(grayscale.getdata())
@@ -231,27 +269,8 @@ def read_photo(path):
                 raise InvalidPhoto("Поддерживаются только JPEG и JPEG/MPO-файлы.")
             source_format = source.format
             exif = source.getexif()
-            details = _nested_exif(exif)
-            captured_at, timezone_explicit = parse_exif_datetime(
-                details.get(TAG_DATETIME_ORIGINAL)
-                or exif.get(TAG_DATETIME_ORIGINAL)
-                or exif.get(TAG_DATETIME),
-                details.get(TAG_OFFSET_TIME_ORIGINAL)
-                or exif.get(TAG_OFFSET_TIME_ORIGINAL)
-                or details.get(TAG_OFFSET_TIME)
-                or exif.get(TAG_OFFSET_TIME),
-                details.get(TAG_SUBSEC_TIME_ORIGINAL) or exif.get(TAG_SUBSEC_TIME_ORIGINAL),
-            )
+            clock = _clock_metadata(path, source)
             latitude, longitude = _gps_coordinates(exif)
-            camera_parts = [
-                str(value).strip()
-                for value in (
-                    exif.get(TAG_MAKE),
-                    exif.get(TAG_MODEL),
-                    details.get(TAG_BODY_SERIAL_NUMBER) or exif.get(TAG_BODY_SERIAL_NUMBER),
-                )
-                if value and str(value).strip()
-            ]
             oriented = ImageOps.exif_transpose(source)
             oriented.load()
             width, height = oriented.size
@@ -269,9 +288,9 @@ def read_photo(path):
         content_sha256=file_sha256(path),
         width=width,
         height=height,
-        captured_at=captured_at,
-        timezone_explicit=timezone_explicit,
-        camera=" ".join(camera_parts) or "unknown-camera",
+        captured_at=clock.captured_at,
+        timezone_explicit=clock.timezone_explicit,
+        camera=clock.camera,
         latitude=latitude,
         longitude=longitude,
         difference_hash=dhash,
@@ -289,6 +308,33 @@ def scan_directory(root):
             continue
         try:
             photos.append(read_photo(path))
+        except InvalidPhoto as exc:
+            failures.append(ScanFailure(path=path, error=str(exc)))
+    return photos, failures
+
+
+def read_photo_clock(path):
+    path = Path(path)
+    try:
+        with Image.open(path) as source:
+            if source.format not in JPEG_FORMATS:
+                raise InvalidPhoto("Поддерживаются только JPEG и JPEG/MPO-файлы.")
+            return _clock_metadata(path, source)
+    except InvalidPhoto:
+        raise
+    except Exception as exc:
+        raise InvalidPhoto(f"Не удалось прочитать JPEG: {exc}") from exc
+
+
+def scan_photo_clocks(root):
+    root = Path(root)
+    photos = []
+    failures = []
+    for path in sorted(item for item in root.rglob("*") if item.is_file()):
+        if path.suffix.lower() not in JPEG_SUFFIXES:
+            continue
+        try:
+            photos.append(read_photo_clock(path))
         except InvalidPhoto as exc:
             failures.append(ScanFailure(path=path, error=str(exc)))
     return photos, failures
