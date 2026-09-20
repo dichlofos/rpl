@@ -3,7 +3,7 @@ import json
 from collections import Counter
 from pathlib import Path
 
-from .calibration import suggest_time_offsets
+from .calibration import evaluate_time_offset, suggest_time_offsets
 from .metadata import scan_directory
 from .similarity import group_similar_photos
 from .timeline import read_gpx_timeline
@@ -25,12 +25,24 @@ def build_report(directory, gpx_paths=(), *, window_seconds=60, hash_distance=24
     for camera in cameras:
         camera_photos = [photo for photo in photos if photo.camera == camera]
         times = [photo.captured_at for photo in camera_photos if photo.captured_at]
+        explicit_timezone_count = sum(
+            photo.timezone_explicit for photo in camera_photos if photo.captured_at
+        )
         suggestions = suggest_time_offsets(times, track_intervals)
+        if times and explicit_timezone_count == len(times):
+            zero = evaluate_time_offset(times, track_intervals, 0)
+            suggestions = [zero] + [item for item in suggestions if item.offset_seconds != 0]
         camera_calibrations.append(
             {
                 "camera": camera,
                 "photo_count": len(camera_photos),
                 "photos_with_time": len(times),
+                "photos_with_explicit_timezone": explicit_timezone_count,
+                "recommendation_basis": (
+                    "exif-timezone"
+                    if times and explicit_timezone_count == len(times)
+                    else "track-overlap"
+                ),
                 "captured_from": min(times).isoformat() if times else None,
                 "captured_to": max(times).isoformat() if times else None,
                 "offset_suggestions": [
@@ -54,6 +66,7 @@ def build_report(directory, gpx_paths=(), *, window_seconds=60, hash_distance=24
         "cameras": dict(sorted(Counter(photo.camera for photo in photos).items())),
         "photos_with_time": sum(photo.captured_at is not None for photo in photos),
         "photos_with_gps": sum(photo.latitude is not None for photo in photos),
+        "photos": [photo.as_json() for photo in photos],
         "camera_calibrations": camera_calibrations,
         "similarity_stacks": [
             {
@@ -70,23 +83,15 @@ def build_report(directory, gpx_paths=(), *, window_seconds=60, hash_distance=24
 
 def create_parser():
     parser = argparse.ArgumentParser(
-        description=(
-            "Исследовательский анализ каталога "
-            "фотографий для RPL."
-        )
+        description=("Исследовательский анализ каталога фотографий для RPL.")
     )
-    parser.add_argument(
-        "directory", type=Path, help="Каталог с JPEG-фотографиями."
-    )
+    parser.add_argument("directory", type=Path, help="Каталог с JPEG-фотографиями.")
     parser.add_argument(
         "--gpx",
         type=Path,
         action="append",
         default=[],
-        help=(
-            "GPX для временной калибровки; "
-            "параметр можно повторять."
-        ),
+        help=("GPX для временной калибровки; параметр можно повторять."),
     )
     parser.add_argument("--window-seconds", type=int, default=60)
     parser.add_argument("--hash-distance", type=int, default=24)
@@ -121,6 +126,8 @@ def main(argv=None):
             f"{calibration['camera']} "
             "(нормализованное = исходное + поправка):"
         )
+        if calibration["recommendation_basis"] == "exif-timezone":
+            print("  Часовой пояс задан в EXIF; базовая поправка равна +00:00.")
         for item in calibration["offset_suggestions"]:
             print(f"  {item['offset']}: {item['matched_count']}/{item['photo_count']}")
     print(f"Стопок с похожими кадрами: {len(report['similarity_stacks'])}")

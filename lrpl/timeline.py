@@ -1,5 +1,6 @@
 from dataclasses import dataclass
 from datetime import datetime, timezone
+from itertools import pairwise
 from pathlib import Path
 
 import gpxpy
@@ -68,7 +69,7 @@ def read_gpx_timeline(path):
 def interpolate_position(timeline, at, max_gap_seconds=15 * 60):
     at = utc_datetime(at)
     for segment in timeline.segments:
-        for left, right in zip(segment, segment[1:]):
+        for left, right in pairwise(segment):
             if not left.time <= at <= right.time:
                 continue
             gap_seconds = (right.time - left.time).total_seconds()

@@ -28,6 +28,29 @@ def _offset_preference(offset_seconds):
     return 2
 
 
+def evaluate_time_offset(photo_times, track_intervals, offset_seconds, tolerance_minutes=15):
+    photo_times = [_naive_utc(value) for value in photo_times if value is not None]
+    intervals = [
+        (_naive_utc(start), _naive_utc(finish))
+        for start, finish in track_intervals
+        if start is not None and finish is not None and start <= finish
+    ]
+    tolerance = timedelta(minutes=tolerance_minutes)
+    offset = timedelta(seconds=offset_seconds)
+    matched = sum(
+        any(
+            start - tolerance <= captured_at + offset <= finish + tolerance
+            for start, finish in intervals
+        )
+        for captured_at in photo_times
+    )
+    return OffsetSuggestion(
+        offset_seconds=offset_seconds,
+        matched_count=matched,
+        photo_count=len(photo_times),
+    )
+
+
 def suggest_time_offsets(
     photo_times,
     track_intervals,
@@ -48,24 +71,16 @@ def suggest_time_offsets(
     if not photo_times or not intervals:
         return []
 
-    tolerance = timedelta(minutes=tolerance_minutes)
     first_step = minimum_hours * 60
     last_step = maximum_hours * 60
     suggestions = []
     for offset_minutes in range(first_step, last_step + 1, step_minutes):
-        offset = timedelta(minutes=offset_minutes)
-        matched = sum(
-            any(
-                start - tolerance <= captured_at + offset <= finish + tolerance
-                for start, finish in intervals
-            )
-            for captured_at in photo_times
-        )
         suggestions.append(
-            OffsetSuggestion(
-                offset_seconds=offset_minutes * 60,
-                matched_count=matched,
-                photo_count=len(photo_times),
+            evaluate_time_offset(
+                photo_times,
+                intervals,
+                offset_minutes * 60,
+                tolerance_minutes=tolerance_minutes,
             )
         )
 

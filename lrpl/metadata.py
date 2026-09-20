@@ -7,14 +7,17 @@ from pathlib import Path
 from PIL import Image, ImageFilter, ImageOps, ImageStat
 
 JPEG_SUFFIXES = {".jpg", ".jpeg"}
+JPEG_FORMATS = {"JPEG", "MPO"}
 
 TAG_MAKE = 271
 TAG_MODEL = 272
 TAG_DATETIME = 306
+TAG_EXIF_IFD = 34665
 TAG_GPS_INFO = 34853
 TAG_DATETIME_ORIGINAL = 36867
 TAG_OFFSET_TIME = 36880
 TAG_OFFSET_TIME_ORIGINAL = 36881
+TAG_SUBSEC_TIME_ORIGINAL = 37521
 TAG_BODY_SERIAL_NUMBER = 42033
 
 GPS_LATITUDE_REF = 1
@@ -33,6 +36,7 @@ class InvalidPhoto(ValueError):
 @dataclass(frozen=True)
 class PhotoMetadata:
     path: Path
+    source_format: str
     content_sha256: str
     width: int
     height: int
@@ -72,21 +76,26 @@ def file_sha256(path, chunk_size=1024 * 1024):
     return digest.hexdigest()
 
 
-def parse_exif_datetime(value, offset=None):
+def parse_exif_datetime(value, offset=None, subsecond=None):
     if not value:
         return None, False
     try:
-        captured_at = datetime.strptime(str(value), "%Y:%m:%d %H:%M:%S")
+        # A missing EXIF offset deliberately means camera wall time, not UTC.
+        captured_at = datetime.strptime(  # noqa: DTZ007
+            str(value), "%Y:%m:%d %H:%M:%S"
+        )
     except ValueError as exc:
         raise InvalidPhoto(f"Некорректное время EXIF: {value}") from exc
+    if subsecond is not None:
+        digits = "".join(character for character in str(subsecond) if character.isdigit())
+        if digits:
+            captured_at = captured_at.replace(microsecond=int((digits + "000000")[:6]))
     if not offset:
         return captured_at, False
     match = OFFSET_RE.fullmatch(str(offset))
     if not match:
         raise InvalidPhoto(f"Некорректный часовой пояс EXIF: {offset}")
-    delta = timedelta(
-        hours=int(match.group("hours")), minutes=int(match.group("minutes"))
-    )
+    delta = timedelta(hours=int(match.group("hours")), minutes=int(match.group("minutes")))
     if match.group("sign") == "-":
         delta = -delta
     return captured_at.replace(tzinfo=timezone(delta)), True
@@ -132,10 +141,16 @@ def _gps_coordinates(exif):
     if str(longitude_ref).upper() == "W":
         longitude = -longitude
     if not -90 <= latitude <= 90 or not -180 <= longitude <= 180:
-        raise InvalidPhoto(
-            "GPS-координаты EXIF выходят за допустимые границы."
-        )
+        raise InvalidPhoto("GPS-координаты EXIF выходят за допустимые границы.")
     return latitude, longitude
+
+
+def _nested_exif(exif):
+    try:
+        result = exif.get_ifd(TAG_EXIF_IFD)
+    except (AttributeError, KeyError, TypeError):
+        return {}
+    return result if isinstance(result, dict) else {}
 
 
 def difference_hash(image, size=16):
@@ -145,9 +160,7 @@ def difference_hash(image, size=16):
     for row in range(size):
         offset = row * (size + 1)
         for column in range(size):
-            value = (value << 1) | (
-                pixels[offset + column] > pixels[offset + column + 1]
-            )
+            value = (value << 1) | (pixels[offset + column] > pixels[offset + column + 1])
     return f"{value:0{size * size // 4}x}"
 
 
@@ -166,12 +179,20 @@ def read_photo(path):
     path = Path(path)
     try:
         with Image.open(path) as source:
-            if source.format != "JPEG":
-                raise InvalidPhoto("Поддерживаются только JPEG-файлы.")
+            if source.format not in JPEG_FORMATS:
+                raise InvalidPhoto("Поддерживаются только JPEG и JPEG/MPO-файлы.")
+            source_format = source.format
             exif = source.getexif()
+            details = _nested_exif(exif)
             captured_at, timezone_explicit = parse_exif_datetime(
-                exif.get(TAG_DATETIME_ORIGINAL) or exif.get(TAG_DATETIME),
-                exif.get(TAG_OFFSET_TIME_ORIGINAL) or exif.get(TAG_OFFSET_TIME),
+                details.get(TAG_DATETIME_ORIGINAL)
+                or exif.get(TAG_DATETIME_ORIGINAL)
+                or exif.get(TAG_DATETIME),
+                details.get(TAG_OFFSET_TIME_ORIGINAL)
+                or exif.get(TAG_OFFSET_TIME_ORIGINAL)
+                or details.get(TAG_OFFSET_TIME)
+                or exif.get(TAG_OFFSET_TIME),
+                details.get(TAG_SUBSEC_TIME_ORIGINAL) or exif.get(TAG_SUBSEC_TIME_ORIGINAL),
             )
             latitude, longitude = _gps_coordinates(exif)
             camera_parts = [
@@ -179,7 +200,7 @@ def read_photo(path):
                 for value in (
                     exif.get(TAG_MAKE),
                     exif.get(TAG_MODEL),
-                    exif.get(TAG_BODY_SERIAL_NUMBER),
+                    details.get(TAG_BODY_SERIAL_NUMBER) or exif.get(TAG_BODY_SERIAL_NUMBER),
                 )
                 if value and str(value).strip()
             ]
@@ -195,6 +216,7 @@ def read_photo(path):
 
     return PhotoMetadata(
         path=path,
+        source_format=source_format,
         content_sha256=file_sha256(path),
         width=width,
         height=height,

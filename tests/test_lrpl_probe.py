@@ -4,8 +4,8 @@ from pathlib import Path
 import pytest
 from PIL import Image, ImageDraw
 
-from lrpl.calibration import suggest_time_offsets
-from lrpl.metadata import read_photo, scan_directory
+from lrpl.calibration import evaluate_time_offset, suggest_time_offsets
+from lrpl.metadata import parse_exif_datetime, read_photo, scan_directory
 from lrpl.probe import build_report
 from lrpl.similarity import group_similar_photos, hamming_distance
 from lrpl.timeline import interpolate_position, read_gpx_timeline
@@ -30,10 +30,12 @@ def test_read_photo_extracts_metadata_and_fingerprints(tmp_path):
     photo = read_photo(path)
 
     assert photo.path == path
+    assert photo.source_format == "JPEG"
     assert photo.content_sha256
     assert photo.width == 160
     assert photo.height == 100
-    assert photo.captured_at == datetime(2026, 7, 18, 12, 0)
+    assert photo.captured_at is not None
+    assert photo.captured_at.isoformat() == "2026-07-18T12:00:00"
     assert not photo.timezone_explicit
     assert photo.camera == "Test Camera"
     assert len(photo.perceptual_hash) == 64
@@ -53,8 +55,8 @@ def test_scan_directory_reports_broken_jpeg_without_stopping(tmp_path):
 
 def test_suggest_time_offset_that_places_photos_inside_track():
     photos = [
-        datetime(2026, 7, 18, 12, 5),
-        datetime(2026, 7, 18, 12, 40),
+        datetime.fromisoformat("2026-07-18T12:05:00"),
+        datetime.fromisoformat("2026-07-18T12:40:00"),
     ]
     tracks = [
         (
@@ -67,6 +69,27 @@ def test_suggest_time_offset_that_places_photos_inside_track():
 
     assert suggestions[0].offset_seconds == -3 * 60 * 60
     assert suggestions[0].matched_count == 2
+
+
+def test_parse_exif_datetime_uses_offset_and_subseconds():
+    captured_at, timezone_explicit = parse_exif_datetime("2026:07:18 12:00:00", "+03:00", "347")
+
+    assert timezone_explicit
+    assert captured_at.isoformat() == "2026-07-18T12:00:00.347000+03:00"
+
+
+def test_evaluate_explicit_zero_offset():
+    photos = [datetime(2026, 7, 18, 12, 5, tzinfo=timezone.utc)]
+    tracks = [
+        (
+            datetime(2026, 7, 18, 12, 0, tzinfo=timezone.utc),
+            datetime(2026, 7, 18, 13, 0, tzinfo=timezone.utc),
+        )
+    ]
+
+    result = evaluate_time_offset(photos, tracks, 0)
+
+    assert result.matched_count == 1
 
 
 def test_similarity_groups_recompressed_and_shifted_photos(tmp_path):
@@ -105,6 +128,7 @@ def test_probe_suggests_offsets_per_camera(tmp_path):
     calibration = report["camera_calibrations"][0]
     assert calibration["camera"] == "Test Camera"
     assert calibration["offset_suggestions"][0]["offset"] == "-03:00"
+    assert report["photos"][0]["source_format"] == "JPEG"
 
 
 def test_timeline_preserves_segments_and_interpolates(tmp_path):
@@ -122,9 +146,7 @@ def test_timeline_preserves_segments_and_interpolates(tmp_path):
     )
 
     timeline = read_gpx_timeline(path)
-    position = interpolate_position(
-        timeline, datetime(2026, 7, 18, 9, 5, tzinfo=timezone.utc)
-    )
+    position = interpolate_position(timeline, datetime(2026, 7, 18, 9, 5, tzinfo=timezone.utc))
 
     assert len(timeline.segments) == 1
     assert position is not None
@@ -149,9 +171,4 @@ def test_interpolation_rejects_large_track_gap(tmp_path):
 
     timeline = read_gpx_timeline(path)
 
-    assert (
-        interpolate_position(
-            timeline, datetime(2026, 7, 18, 9, 30, tzinfo=timezone.utc)
-        )
-        is None
-    )
+    assert interpolate_position(timeline, datetime(2026, 7, 18, 9, 30, tzinfo=timezone.utc)) is None
