@@ -59,6 +59,7 @@ INSTALLED_APPS = [
     "django.contrib.gis",
     "regions",
     "tracks",
+    "reports",
 ]
 
 MIDDLEWARE = [

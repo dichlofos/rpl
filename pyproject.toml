@@ -35,4 +35,4 @@ target-version = "py310"
 "*/migrations/*.py" = ["E501", "RUF012"]
 
 [tool.setuptools.packages.find]
-include = ["lrpl*", "regions*", "rpl*", "tracks*"]
+include = ["lrpl*", "regions*", "reports*", "rpl*", "tracks*"]
