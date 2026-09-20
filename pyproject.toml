@@ -15,11 +15,13 @@ dependencies = [
 
 [project.optional-dependencies]
 dev = [
+  "Pillow>=10.4",
   "pytest>=8.3",
   "pytest-django>=4.9",
   "ruff>=0.9",
 ]
 geo = ["overturemaps>=1.0,<2"]
+photos = ["Pillow>=10.4"]
 
 [tool.pytest.ini_options]
 DJANGO_SETTINGS_MODULE = "rpl.settings"
@@ -33,4 +35,4 @@ target-version = "py310"
 "*/migrations/*.py" = ["E501", "RUF012"]
 
 [tool.setuptools.packages.find]
-include = ["regions*", "rpl*", "tracks*"]
+include = ["lrpl*", "regions*", "rpl*", "tracks*"]
