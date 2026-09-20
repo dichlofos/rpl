@@ -5,6 +5,7 @@ from . import views
 app_name = "reports"
 
 urlpatterns = [
+    path("reports/", views.report_list, name="list"),
     path(
         "reports/<uuid:public_id>/track-timelines/",
         views.report_timeline,

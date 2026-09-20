@@ -1,6 +1,7 @@
 import json
 import uuid
 
+from django.db.models import Count
 from django.http import JsonResponse
 from django.shortcuts import get_object_or_404
 from django.utils import timezone
@@ -10,6 +11,7 @@ from django.views.decorators.http import require_GET, require_POST
 
 from tracks.permissions import can_manage
 
+from .authentication import api_user
 from .interpolation import DEFAULT_MAX_GAP_SECONDS, INTERPOLATION_ALGORITHM_VERSION
 from .models import TravelReport
 from .position_services import interpolate_report_items
@@ -19,14 +21,44 @@ MAX_GAP_SECONDS = 24 * 60 * 60
 
 
 def private_report(request, public_id):
-    if not request.user.is_authenticated:
+    user = api_user(request)
+    if user is None:
         return None, JsonResponse({"error": "Требуется аутентификация."}, status=401)
     report = get_object_or_404(
         TravelReport.objects.select_related("owner", "track_group"), public_id=public_id
     )
-    if not can_manage(request.user, report):
+    if not can_manage(user, report):
         return None, JsonResponse({"error": "Нет доступа к отчёту."}, status=403)
     return report, None
+
+
+@never_cache
+@require_GET
+def report_list(request):
+    user = api_user(request)
+    if user is None:
+        return JsonResponse({"error": "Требуется аутентификация."}, status=401)
+    reports = TravelReport.objects.select_related("track_group").annotate(
+        track_count=Count("track_links")
+    )
+    if not user.is_superuser:
+        reports = reports.filter(owner=user)
+    return JsonResponse(
+        {
+            "schema_version": 1,
+            "reports": [
+                {
+                    "id": str(report.public_id),
+                    "name": report.name,
+                    "description": report.description,
+                    "track_group_name": report.track_group.name if report.track_group else None,
+                    "track_count": report.track_count,
+                    "updated_at": report.updated_at,
+                }
+                for report in reports
+            ],
+        }
+    )
 
 
 @never_cache

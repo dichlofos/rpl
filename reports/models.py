@@ -1,9 +1,12 @@
+import hashlib
+import secrets
 import uuid
 from typing import ClassVar
 
 from django.conf import settings
 from django.core.exceptions import ValidationError
 from django.db import models
+from django.utils import timezone
 
 
 class TravelReport(models.Model):
@@ -101,3 +104,43 @@ class ReportTrack(models.Model):
     def save(self, *args, **kwargs):
         self.full_clean()
         return super().save(*args, **kwargs)
+
+
+class PersonalApiToken(models.Model):
+    user = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.CASCADE,
+        related_name="api_tokens",
+        verbose_name="пользователь",
+    )
+    name = models.CharField("название", max_length=100)
+    token_id = models.CharField("идентификатор", max_length=16, unique=True, editable=False)
+    secret_hash = models.CharField("хеш секрета", max_length=64, editable=False)
+    created_at = models.DateTimeField("создан", auto_now_add=True)
+    last_used_at = models.DateTimeField("последнее использование", null=True, editable=False)
+    revoked_at = models.DateTimeField("отозван", null=True, blank=True)
+
+    class Meta:
+        ordering: ClassVar[list[str]] = ["-created_at", "-pk"]
+        verbose_name = "персональный API-токен"
+        verbose_name_plural = "персональные API-токены"
+
+    def __str__(self):
+        return f"{self.user}: {self.name}"
+
+    @classmethod
+    def issue(cls, user, name):
+        token_id = secrets.token_hex(8)
+        secret = secrets.token_urlsafe(32)
+        token = cls.objects.create(
+            user=user,
+            name=name,
+            token_id=token_id,
+            secret_hash=hashlib.sha256(secret.encode()).hexdigest(),
+        )
+        return token, f"rpl_{token_id}_{secret}"
+
+    def revoke(self):
+        if self.revoked_at is None:
+            self.revoked_at = timezone.now()
+            self.save(update_fields=["revoked_at"])
