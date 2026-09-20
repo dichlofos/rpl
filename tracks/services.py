@@ -1,6 +1,6 @@
 import re
 from dataclasses import dataclass
-from datetime import datetime
+from datetime import datetime, timezone
 from io import BytesIO
 from math import isfinite
 from pathlib import Path
@@ -34,6 +34,50 @@ class ParsedTrack:
     min_longitude: float
     max_latitude: float
     max_longitude: float
+    timeline: dict
+    timed_points_count: int
+
+
+TIMELINE_SCHEMA_VERSION = 1
+
+
+def timestamp_milliseconds(value):
+    if value.tzinfo is None:
+        value = value.replace(tzinfo=timezone.utc)
+    else:
+        value = value.astimezone(timezone.utc)
+    return round(value.timestamp() * 1000)
+
+
+def temporal_segments(gpx):
+    """Return contiguous, strictly chronological runs of timed track points."""
+    result = []
+    for track in gpx.tracks:
+        for segment in track.segments:
+            current = []
+            previous_time = None
+            for point in segment.points:
+                if point.time is None:
+                    if current:
+                        result.append(current)
+                        current = []
+                    previous_time = None
+                    continue
+                moment = timestamp_milliseconds(point.time)
+                if previous_time is not None and moment <= previous_time:
+                    if current:
+                        result.append(current)
+                    current = []
+                elevation = (
+                    point.elevation
+                    if point.elevation is not None and isfinite(point.elevation)
+                    else None
+                )
+                current.append([moment, point.longitude, point.latitude, elevation])
+                previous_time = moment
+            if current:
+                result.append(current)
+    return result
 
 
 def parse_gpx(content, filename="track.gpx"):
@@ -49,6 +93,7 @@ def parse_gpx(content, filename="track.gpx"):
     except Exception as exc:
         raise InvalidGPX("Не удалось разобрать GPX-файл.") from exc
 
+    timeline_segments = temporal_segments(gpx)
     segments = []
     elevations = []
     times = []
@@ -120,6 +165,12 @@ def parse_gpx(content, filename="track.gpx"):
         min_longitude=min(longitudes),
         max_latitude=max(latitudes),
         max_longitude=max(longitudes),
+        timeline={
+            "version": TIMELINE_SCHEMA_VERSION,
+            "time_unit": "ms",
+            "segments": timeline_segments,
+        },
+        timed_points_count=sum(len(segment) for segment in timeline_segments),
     )
 
 

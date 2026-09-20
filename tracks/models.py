@@ -130,7 +130,7 @@ class Track(models.Model):
         ]
         if not coordinates:
             self.geometry = None
-            return
+            return parsed
         geometry = GEOSGeometry(
             json.dumps({"type": "MultiLineString", "coordinates": coordinates}),
             srid=4326,
@@ -138,6 +138,7 @@ class Track(models.Model):
         if isinstance(geometry, LineString):
             geometry = MultiLineString(geometry, srid=4326)
         self.geometry = geometry
+        return parsed
 
     @transaction.atomic
     def save(self, *args, **kwargs):
@@ -155,8 +156,9 @@ class Track(models.Model):
         file_changed = self.gpx_file and (
             not self.gpx_file._committed or old_file_name != self.gpx_file.name
         )
+        parsed = None
         if file_changed:
-            self._parse_file()
+            parsed = self._parse_file()
             # All derived fields must be saved together with the working file.
             kwargs.pop("update_fields", None)
         if not stored:
@@ -168,6 +170,13 @@ class Track(models.Model):
             self.original_gpx_file.save("original.gpx", ContentFile(content), save=False)
         super().save(*args, **kwargs)
         if file_changed:
+            TrackTimeline.objects.update_or_create(
+                track=self,
+                defaults={
+                    "data": parsed.timeline,
+                    "points_count": parsed.timed_points_count,
+                },
+            )
             from regions.services import classify_track
 
             classify_track(self)
@@ -186,6 +195,26 @@ class Track(models.Model):
         total_minutes = round(self.duration_s / 60)
         hours, minutes = divmod(total_minutes, 60)
         return f"{hours} ч {minutes} мин" if hours else f"{minutes} мин"
+
+
+class TrackTimeline(models.Model):
+    track = models.OneToOneField(
+        Track,
+        on_delete=models.CASCADE,
+        primary_key=True,
+        related_name="timeline",
+        verbose_name="трек",
+    )
+    data = models.JSONField("временная геометрия", default=dict, editable=False)
+    points_count = models.PositiveIntegerField("точек со временем", default=0, editable=False)
+    updated_at = models.DateTimeField("обновлена", auto_now=True)
+
+    class Meta:
+        verbose_name = "временная геометрия трека"
+        verbose_name_plural = "временная геометрия треков"
+
+    def __str__(self):
+        return f"{self.track}: {self.points_count}"
 
 
 class TrackGroup(models.Model):
