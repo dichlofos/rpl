@@ -188,7 +188,8 @@ def test_state_suggests_offset_and_sends_normalized_utc(tmp_path):
     assert center.batch["photos"][0]["time_offset_seconds"] == -10_800
     assert center.batch["photos"][0]["placement"]["source"] == "track"
     rendered = page(state)
-    assert f'href="{(tmp_path / "photo.jpg").as_uri()}"' in rendered
+    assert f'href="/preview/{photo.id}"' in rendered
+    assert "file://" not in rendered
     assert 'href="https://nakarte.me/#m=17/50.000000/80.000000&amp;l=O"' in rendered
 
     state.set_logical_day(photo.id, 2)

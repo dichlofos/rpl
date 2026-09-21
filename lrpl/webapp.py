@@ -738,13 +738,9 @@ def results_table(state, result_page=1):
             )
         else:
             coordinate_cell = "—"
-        photo = state.photo(item["id"])
-        file_uri = photo.path.resolve().as_uri() if photo is not None else ""
         file_cell = (
-            f'<a href="{esc(file_uri)}" target="_blank" rel="noreferrer">'
+            f'<a href="/preview/{esc(item["id"])}" target="_blank" rel="noreferrer">'
             f"<code>{esc(item['path'])}</code></a>"
-            if file_uri
-            else f"<code>{esc(item['path'])}</code>"
         )
         reason = item.get("reason") or position.get("method", "")
         day_value = item["logical_day"] if item["logical_day"] is not None else ""
