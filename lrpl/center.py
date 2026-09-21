@@ -52,7 +52,7 @@ class CenterClient:
             if exc.code == 401:
                 raise CenterError("Центр отклонил токен.") from exc
             if exc.code == 403:
-                raise CenterError("Нет доступа к выбранному отчёту.") from exc
+                raise CenterError(message or "Центр отклонил запрос (HTTP 403).") from exc
             raise CenterError(message or f"Центр вернул HTTP {exc.code}.") from exc
         except (TimeoutError, URLError) as exc:
             reason = getattr(exc, "reason", exc)

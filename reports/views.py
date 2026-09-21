@@ -7,6 +7,7 @@ from django.shortcuts import get_object_or_404
 from django.utils import timezone
 from django.utils.dateparse import parse_datetime
 from django.views.decorators.cache import never_cache
+from django.views.decorators.csrf import csrf_exempt
 from django.views.decorators.http import require_GET, require_POST
 
 from tracks.permissions import can_manage
@@ -144,6 +145,7 @@ def _request_items(payload):
 
 
 @never_cache
+@csrf_exempt
 @require_POST
 def interpolate_positions(request, public_id):
     report, error = private_report(request, public_id)

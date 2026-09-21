@@ -4,7 +4,7 @@ import tempfile
 from django.contrib.auth import get_user_model
 from django.core.files.uploadedfile import SimpleUploadedFile
 from django.core.management import call_command
-from django.test import TestCase, override_settings
+from django.test import Client, TestCase, override_settings
 from django.urls import reverse
 
 from reports.models import PersonalApiToken, TravelReport
@@ -62,8 +62,9 @@ class ApiTokenTests(TestCase):
 
     def test_bearer_token_can_call_interpolation_api(self):
         _, raw = PersonalApiToken.issue(self.owner, "Laptop")
+        csrf_client = Client(enforce_csrf_checks=True)
 
-        response = self.client.post(
+        response = csrf_client.post(
             reverse("reports:interpolate-positions", args=[self.report.public_id]),
             data='{"items":[{"id":"photo","captured_at":"2026-08-09T08:02:30Z"}]}',
             content_type="application/json",
