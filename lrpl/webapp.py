@@ -728,10 +728,23 @@ def results_table(state, result_page=1):
     rows = []
     for item in visible_results:
         position = item.get("position") or {}
-        coordinates = (
-            f"{position.get('latitude', 0):.6f}, {position.get('longitude', 0):.6f}"
-            if position
-            else "—"
+        if position:
+            latitude = position["latitude"]
+            longitude = position["longitude"]
+            coordinates = f"{latitude:.6f}, {longitude:.6f}"
+            coordinate_cell = (
+                f'<a href="https://nakarte.me/#m=17/{latitude:.6f}/{longitude:.6f}&amp;l=O" '
+                f'target="_blank" rel="noreferrer">{esc(coordinates)}</a>'
+            )
+        else:
+            coordinate_cell = "—"
+        photo = state.photo(item["id"])
+        file_uri = photo.path.resolve().as_uri() if photo is not None else ""
+        file_cell = (
+            f'<a href="{esc(file_uri)}" target="_blank" rel="noreferrer">'
+            f"<code>{esc(item['path'])}</code></a>"
+            if file_uri
+            else f"<code>{esc(item['path'])}</code>"
         )
         reason = item.get("reason") or position.get("method", "")
         day_value = item["logical_day"] if item["logical_day"] is not None else ""
@@ -751,10 +764,10 @@ def results_table(state, result_page=1):
             f'<tr><td class="{esc(item["status"])}">{esc(item["status"])}</td>'
             f"<td><code>{esc(item.get('photo_key') or '—')}</code></td>"
             f"<td>{day_form}</td>"
-            f"<td><code>{esc(item['path'])}</code></td><td>{esc(item['camera'])}</td>"
+            f"<td>{file_cell}</td><td>{esc(item['camera'])}</td>"
             f"<td>{esc(item['captured_at'] or '—')}</td>"
             f"<td>{esc(item['normalized_at'] or '—')}</td><td>{esc(reason)}</td>"
-            f"<td>{esc(coordinates)}</td></tr>"
+            f"<td>{coordinate_cell}</td></tr>"
         )
     navigation = ""
     if total_pages > 1:
