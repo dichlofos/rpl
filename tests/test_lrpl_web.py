@@ -16,6 +16,7 @@ from lrpl.webapp import (
     page,
     parse_offset,
     thumbnail_bytes,
+    valid_origin,
 )
 from tests.test_lrpl_probe import make_jpeg
 
@@ -211,6 +212,14 @@ def test_offsets_and_explicit_timezone_normalization():
         parse_offset("3 hours")
     value = datetime(2026, 7, 18, 12, 0, tzinfo=timezone(timedelta(hours=3)))
     assert normalized_time(value, 0).isoformat() == "2026-07-18T09:00:00+00:00"
+
+
+def test_origin_check_accepts_loopback_and_opaque_webview():
+    assert valid_origin(None, 8123)
+    assert valid_origin("null", 8123)
+    assert valid_origin("http://127.0.0.1:8123", 8123)
+    assert valid_origin("http://localhost:8123", 8123)
+    assert not valid_origin("https://example.com", 8123)
 
 
 def test_page_never_renders_center_token(tmp_path):

@@ -64,6 +64,18 @@ def normalized_time(value, offset_seconds):
     return base + timedelta(seconds=offset_seconds)
 
 
+def valid_origin(origin, port):
+    return (
+        not origin
+        or origin == "null"
+        or origin
+        in {
+            f"http://127.0.0.1:{port}",
+            f"http://localhost:{port}",
+        }
+    )
+
+
 @dataclass(frozen=True)
 class CameraCalibration:
     index: int
@@ -831,7 +843,8 @@ def handler_class(state, logger, events_path):
                 return
             port = self.server.server_port
             origin = self.headers.get("Origin")
-            if origin and origin not in {f"http://127.0.0.1:{port}", f"http://localhost:{port}"}:
+            if not valid_origin(origin, port):
+                logger.warning("Rejected POST origin: %r", origin)
                 self.send_error(403)
                 return
             try:
