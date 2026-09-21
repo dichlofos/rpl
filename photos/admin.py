@@ -18,9 +18,10 @@ class PhotoAssetAdmin(admin.ModelAdmin):
         "batch",
         "logical_day",
         "day_confirmed",
+        "filter_status",
         "captured_at_normalized",
     )
-    list_filter = ("day_confirmed", "logical_day")
+    list_filter = ("filter_status", "day_confirmed", "logical_day")
     search_fields = ("photo_key", "relative_path", "camera")
     readonly_fields = ("public_id", "photo_key", "client_id", "created_at", "updated_at")
 

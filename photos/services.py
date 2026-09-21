@@ -138,6 +138,9 @@ def validate_payload(report, payload):
         day_confirmed = _boolean(item.get("day_confirmed", False), "day_confirmed")
         if day_confirmed and logical_day is None:
             raise ValidationError("Нельзя подтвердить фотографию без логического дня.")
+        filter_status = item.get("filter_status", PhotoAsset.FilterStatus.UNREVIEWED)
+        if filter_status not in PhotoAsset.FilterStatus.values:
+            raise ValidationError("Неизвестный результат фильтрации фотографии.")
         photos.append(
             {
                 "client_id": photo_id,
@@ -157,6 +160,7 @@ def validate_payload(report, payload):
                 "captured_at_normalized": _normalized_time(item.get("captured_at_normalized")),
                 "logical_day": logical_day,
                 "day_confirmed": day_confirmed,
+                "filter_status": filter_status,
                 "camera": _text(item.get("camera", ""), "camera", 300, blank=True),
                 "content_sha256": _text(
                     item.get("content_sha256", ""), "content_sha256", 64, blank=True
@@ -217,6 +221,7 @@ def register_photo_batch(user, report, payload):
         "captured_at_normalized",
         "logical_day",
         "day_confirmed",
+        "filter_status",
         "camera",
         "content_sha256",
         "updated_at",

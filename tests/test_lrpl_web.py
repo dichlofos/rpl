@@ -1,13 +1,22 @@
 import json
 from datetime import datetime, timedelta, timezone
+from io import BytesIO
 from pathlib import Path
 
 import pytest
+from PIL import Image
 
 from lrpl.center import CenterClient
 from lrpl.index import LocalIndex
 from lrpl.metadata import scan_photo_clocks
-from lrpl.webapp import AppState, format_offset, normalized_time, page, parse_offset
+from lrpl.webapp import (
+    AppState,
+    format_offset,
+    normalized_time,
+    page,
+    parse_offset,
+    thumbnail_bytes,
+)
 from tests.test_lrpl_probe import make_jpeg
 
 
@@ -186,6 +195,11 @@ def test_state_suggests_offset_and_sends_normalized_utc(tmp_path):
     state.match({"0": "-03:00"}, 900)
     assert state.results[0]["logical_day"] == 2
     assert state.confirm_days() == 1
+
+    state._analyze_similarity()
+    assert state.similarity_job["status"] == "complete"
+    assert state.results[0]["filter_status"] == "selected"
+    assert center.batch["photos"][0]["filter_status"] == "selected"
     index.close()
 
 
@@ -205,3 +219,16 @@ def test_page_never_renders_center_token(tmp_path):
     state.reports = []
 
     assert "topsecret" not in page(state)
+
+
+def test_thumbnail_is_small_jpeg(tmp_path):
+    path = tmp_path / "photo.jpg"
+    make_jpeg(path)
+
+    content = thumbnail_bytes(path, (80, 80))
+
+    assert content.startswith(b"\xff\xd8")
+    with Image.open(BytesIO(content)) as image:
+        assert image.format == "JPEG"
+        assert image.width <= 80
+        assert image.height <= 80

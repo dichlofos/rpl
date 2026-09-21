@@ -1,5 +1,6 @@
 import argparse
 import html
+import io
 import logging
 import secrets
 import threading
@@ -11,13 +12,19 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from urllib.parse import parse_qs, urlparse
 
+from PIL import Image, ImageOps
+
 from .calibration import suggest_time_offsets
 from .center import CenterClient, CenterError
 from .index import LocalIndex
 from .logging_setup import product_event, setup_logging
+from .similarity import group_similar_photos, group_temporal_episodes
 
 MAX_FORM_SIZE = 1024 * 1024
 RESULTS_PER_PAGE = 500
+SIMILARITY_EPISODE_GAP_SECONDS = 10
+SIMILARITY_DIFFERENCE_HASH_DISTANCE = 24
+SIMILARITY_PERCEPTUAL_HASH_DISTANCE = 10
 
 
 def parse_iso_datetime(value):
@@ -70,12 +77,15 @@ class CameraCalibration:
 
 
 class AppState:
-    def __init__(self, photo_root, photos, failures, *, center_url="", index=None):
+    def __init__(
+        self, photo_root, photos, failures, *, center_url="", index=None, events_path=None
+    ):
         self.photo_root = Path(photo_root).resolve()
         self.photos = tuple(photos)
         self.failures = tuple(failures)
         self.center_url = center_url
         self.index = index
+        self.events_path = events_path
         self.client = None
         self.reports = []
         self.selected_report_id = None
@@ -85,6 +95,8 @@ class AppState:
         self.offsets = {}
         self.track_days = {}
         self.calendar_days = {}
+        self.similarity_stacks = []
+        self.similarity_job = {"status": "idle", "current": 0, "total": 0, "message": ""}
         self.error = ""
         self.csrf_token = secrets.token_urlsafe(32)
         self.lock = threading.RLock()
@@ -103,6 +115,8 @@ class AppState:
             self.offsets = {}
             self.track_days = {}
             self.calendar_days = {}
+            self.similarity_stacks = []
+            self.similarity_job = {"status": "idle", "current": 0, "total": 0, "message": ""}
 
     def select_report(self, report_id):
         if report_id not in {report["id"] for report in self.reports}:
@@ -156,6 +170,8 @@ class AppState:
             self.track_days = {
                 track_id: calendar_days[value] for track_id, value in track_dates.items()
             }
+            self.similarity_stacks = []
+            self.similarity_job = {"status": "idle", "current": 0, "total": 0, "message": ""}
 
     def match(self, offset_values, max_gap_seconds):
         offsets = {
@@ -261,6 +277,17 @@ class AppState:
                 {item["id"]: (item["logical_day"], item["day_confirmed"]) for item in enriched},
             )
             self.batch_id = batch_id
+            statuses = self.index.filter_statuses(batch_id)
+            for item in enriched:
+                item["filter_status"] = statuses.get(item["id"], "unreviewed")
+            self.similarity_stacks = self.index.similarity_stacks(batch_id)
+            if self.similarity_stacks:
+                self.similarity_job = {
+                    "status": "complete",
+                    "current": len(self.photos),
+                    "total": len(self.photos),
+                    "message": "Ранее сохранённый анализ загружен.",
+                }
             self._sync_results(enriched)
         return Counter(item["status"] for item in enriched)
 
@@ -284,31 +311,180 @@ class AppState:
         self._sync_results(assigned)
         return len(assigned)
 
-    def _sync_results(self, results):
+    def _sync_results(self, results, *, batch_id=None, report_id=None, offsets=None):
+        batch_id = batch_id or self.batch_id
+        report_id = report_id or self.selected_report_id
+        offsets = offsets or self.offsets
         photo_by_id = {photo.id: photo for photo in self.photos}
         server_photos = [
             self._server_photo(
                 photo_by_id[result["id"]],
-                self.offsets[photo_by_id[result["id"]].camera],
+                offsets[photo_by_id[result["id"]].camera],
                 result,
             )
             for result in results
         ]
         response = self.client.register_photo_batch(
-            self.selected_report_id,
-            self.batch_id,
+            report_id,
+            batch_id,
             self.photo_root.name or "photos",
-            self.offsets,
+            offsets,
             server_photos,
         )
-        self.index.save_server_response(self.batch_id, response)
+        self.index.save_server_response(batch_id, response)
         keys = {item["client_id"]: item["photo_key"] for item in response["photos"]}
         for item in results:
             if item["id"] in keys:
                 item["photo_key"] = keys[item["id"]]
 
-    @staticmethod
-    def _server_photo(photo, offset, result):
+    def start_similarity_analysis(self):
+        if self.index is None or self.batch_id is None:
+            raise ValueError("Сначала выполните калибровку и привязку фотографий.")
+        with self.lock:
+            if self.similarity_job["status"] == "running":
+                return
+            self.similarity_job = {
+                "status": "running",
+                "current": 0,
+                "total": len(self.photos),
+                "message": "Подготовка анализа…",
+            }
+        thread = threading.Thread(
+            target=self._analyze_similarity,
+            args=(
+                self.batch_id,
+                self.selected_report_id,
+                dict(self.offsets),
+                self.results,
+            ),
+            daemon=True,
+        )
+        thread.start()
+
+    def _analyze_similarity(self, batch_id=None, report_id=None, offsets=None, results=None):
+        batch_id = batch_id or self.batch_id
+        report_id = report_id or self.selected_report_id
+        offsets = offsets or self.offsets
+        results = results or self.results
+        try:
+
+            def progress(current, total, path):
+                with self.lock:
+                    if self.batch_id != batch_id:
+                        return
+                    self.similarity_job.update(
+                        current=current,
+                        total=total,
+                        message=f"Анализируется {path}",
+                    )
+
+            metadata, failures = self.index.analyze(self.photos, progress)
+            photo_id_by_path = {photo.path: photo.id for photo in self.photos}
+            stack_data = []
+            exact_groups = defaultdict(list)
+            for item in metadata:
+                exact_groups[item.content_sha256].append(item)
+            exact_paths = set()
+            for copies in exact_groups.values():
+                if len(copies) < 2:
+                    continue
+                exact_paths.update(item.path for item in copies)
+                sharpest = max(copies, key=lambda item: item.sharpness)
+                stack_data.append(
+                    {
+                        "kind": "exact",
+                        "recommended": photo_id_by_path[sharpest.path],
+                        "members": [photo_id_by_path[item.path] for item in copies],
+                    }
+                )
+            episodes = group_temporal_episodes(
+                [item for item in metadata if item.path not in exact_paths],
+                gap_seconds=SIMILARITY_EPISODE_GAP_SECONDS,
+            )
+            for episode in episodes:
+                if len(episode.photos) < 2:
+                    continue
+                stacks = group_similar_photos(
+                    episode.photos,
+                    window_seconds=max(episode.duration_seconds, SIMILARITY_EPISODE_GAP_SECONDS),
+                    difference_hash_distance=SIMILARITY_DIFFERENCE_HASH_DISTANCE,
+                    perceptual_hash_distance=SIMILARITY_PERCEPTUAL_HASH_DISTANCE,
+                )
+                for stack in stacks:
+                    if len(stack.photos) < 2:
+                        continue
+                    stack_data.append(
+                        {
+                            "kind": stack.kind,
+                            "recommended": photo_id_by_path[stack.sharpest.path],
+                            "members": [photo_id_by_path[item.path] for item in stack.photos],
+                        }
+                    )
+            analyzed_ids = [photo_id_by_path[item.path] for item in metadata]
+            self.index.save_similarity(batch_id, analyzed_ids, stack_data)
+            stacks = self.index.similarity_stacks(batch_id)
+            statuses = self.index.filter_statuses(batch_id)
+            with self.lock:
+                if self.batch_id != batch_id:
+                    return
+                self.similarity_stacks = stacks
+                for item in results:
+                    item["filter_status"] = statuses.get(item["id"], "unreviewed")
+                self.similarity_job = {
+                    "status": "complete",
+                    "current": len(metadata),
+                    "total": len(self.photos),
+                    "message": (f"Найдено стопок: {len(stacks)}; ошибок анализа: {len(failures)}."),
+                }
+            self._sync_results(
+                results,
+                batch_id=batch_id,
+                report_id=report_id,
+                offsets=offsets,
+            )
+            if self.events_path:
+                product_event(
+                    self.events_path,
+                    "similarity_analysis_completed",
+                    photos=len(metadata),
+                    stacks=len(stacks),
+                    failures=len(failures),
+                )
+        except Exception as exc:  # Background failures must remain visible in the UI and logs.
+            logging.getLogger("lrpl").exception("Similarity analysis failed")
+            if self.events_path:
+                product_event(self.events_path, "similarity_analysis_failed", error=str(exc))
+            with self.lock:
+                if self.batch_id != batch_id:
+                    return
+                self.similarity_job = {
+                    "status": "error",
+                    "current": self.similarity_job.get("current", 0),
+                    "total": len(self.photos),
+                    "message": str(exc),
+                }
+
+    def decide_similarity(self, stack_id, decision, photo_id=None):
+        self.index.decide_similarity(self.batch_id, stack_id, decision, photo_id)
+        self.similarity_stacks = self.index.similarity_stacks(self.batch_id)
+        statuses = self.index.filter_statuses(self.batch_id)
+        affected_ids = {
+            member["id"]
+            for stack in self.similarity_stacks
+            if stack["id"] == stack_id
+            for member in stack["members"]
+        }
+        affected = []
+        for item in self.results:
+            item["filter_status"] = statuses.get(item["id"], "unreviewed")
+            if item["id"] in affected_ids:
+                affected.append(item)
+        self._sync_results(affected)
+
+    def photo(self, photo_id):
+        return next((photo for photo in self.photos if photo.id == photo_id), None)
+
+    def _server_photo(self, photo, offset, result):
         api_result = result["api_result"]
         position = api_result.get("position")
         placement = None
@@ -343,6 +519,7 @@ class AppState:
                 },
                 "confirmed": False,
             }
+        analysis = self.index.analysis_values(photo.id) if self.index is not None else {}
         return {
             "client_id": photo.id,
             "relative_path": photo.relative_path,
@@ -355,6 +532,8 @@ class AppState:
             "logical_day": result["logical_day"],
             "day_confirmed": result["day_confirmed"],
             "camera": photo.camera,
+            "content_sha256": analysis.get("content_sha256") or "",
+            "filter_status": result.get("filter_status", "unreviewed"),
             "placement": placement,
         }
 
@@ -366,9 +545,14 @@ def esc(value):
 def page(state, result_page=1):
     error = f'<div class="error">{esc(state.error)}</div>' if state.error else ""
     content = connect_form(state) if state.client is None else workspace(state, result_page)
+    refresh = (
+        '<meta http-equiv="refresh" content="3">'
+        if state.similarity_job["status"] == "running"
+        else ""
+    )
     return f"""<!doctype html>
 <html lang="ru"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width">
-<title>LRPL — привязка фотографий</title>
+<title>LRPL — привязка фотографий</title>{refresh}
 <style>
 body{{font:15px system-ui,sans-serif;margin:0;background:#f4f5f7;color:#20242a}}
 main{{max-width:1180px;margin:0 auto;padding:28px}}h1,h2{{margin:.2em 0 .7em}}
@@ -380,6 +564,10 @@ th,td{{padding:7px;border-bottom:1px solid #e2e5e9;text-align:left;vertical-alig
 .error{{background:#ffe6e6;color:#8b1111;padding:12px;border-radius:8px}}.muted{{color:#626b76}}
 .matched{{color:#176b34}}.ambiguous{{color:#8a5900}}.unmatched,.invalid{{color:#9b1c1c}}
 code{{font-size:13px}}.summary span{{display:inline-block;margin-right:18px}}
+.stacks{{display:grid;gap:18px}}.stack{{border:1px solid #d9dde3;border-radius:8px;padding:14px}}
+.members{{display:flex;gap:12px;overflow-x:auto;padding:8px 0}}.member{{min-width:230px;max-width:230px}}
+.member img{{display:block;width:230px;height:170px;object-fit:contain;background:#17191c;border-radius:6px}}
+.member form{{margin:0}}.member button{{margin-top:6px}}small{{display:block}}
 </style></head><body><main><h1>LRPL</h1>
 <p class="muted">Каталог: <code>{esc(state.photo_root)}</code> · JPEG: {len(state.photos)} · ошибок: {len(state.failures)}</p>
 {error}{content}</main></body></html>"""
@@ -423,7 +611,82 @@ def workspace(state, result_page=1):
 <tbody>{rows}</tbody></table><label>Максимальный разрыв трека, секунд</label>
 <input type="text" name="max_gap_seconds" value="900" required>
 <button type="submit">Привязать фотографии</button></form></section>"""
-    return report_form + calibration + results_table(state, result_page)
+    navigation = ""
+    if state.results:
+        navigation = (
+            '<p><a href="#days">Логические дни</a> · <a href="#similarity">Похожие кадры</a></p>'
+        )
+    return (
+        report_form
+        + calibration
+        + navigation
+        + results_table(state, result_page)
+        + similarity_panel(state)
+    )
+
+
+def similarity_panel(state):
+    if not state.results:
+        return ""
+    job = state.similarity_job
+    if job["status"] == "running":
+        total = job["total"] or 1
+        percent = round(job["current"] * 100 / total)
+        return f"""<section class="card" id="similarity"><h2>4. Похожие кадры</h2>
+<p>{esc(job["message"])}</p><progress max="{total}" value="{job["current"]}"></progress>
+<span> {percent}% ({job["current"]}/{job["total"]})</span>
+<p class="muted">Страница обновляется автоматически. LRPL можно оставить работать в фоне.</p></section>"""
+    if job["status"] in {"idle", "error"}:
+        message = f'<p class="error">{esc(job["message"])}</p>' if job["status"] == "error" else ""
+        return f"""<section class="card" id="similarity"><h2>4. Похожие кадры</h2>{message}
+<p>Полный локальный анализ вычислит SHA-256, визуальные отпечатки и относительную резкость. Оригиналы не загружаются.</p>
+<form method="post" action="/analyze-similarity">{csrf(state)}
+<button type="submit">Найти похожие кадры</button></form></section>"""
+
+    pending = sum(stack["decision"] == "pending" for stack in state.similarity_stacks)
+    selected = sum(item.get("filter_status") == "selected" for item in state.results)
+    rejected = sum(item.get("filter_status") == "rejected" for item in state.results)
+    cards = []
+    for stack in state.similarity_stacks:
+        members = []
+        sharpest = max((item["sharpness"] or 0 for item in stack["members"]), default=0)
+        for member in stack["members"]:
+            recommended = member["id"] == stack["recommended"]
+            sharpness = member["sharpness"] or 0
+            relative = round(sharpness * 100 / sharpest) if sharpest else 0
+            badge = " · рекомендован" if recommended else ""
+            status = member["filter_status"]
+            status_label = {
+                "unreviewed": "не проверен",
+                "selected": "оставлен",
+                "rejected": "отклонён",
+            }.get(status, status)
+            members.append(
+                f"""<div class="member"><a href="/preview/{esc(member["id"])}" target="_blank" rel="noreferrer"><img src="/thumbnail/{esc(member["id"])}" alt="{esc(member["relative_path"])}"></a>
+<code>{esc(member["relative_path"])}</code><small>резкость: {relative}%{badge} · {esc(status_label)}</small>
+<form method="post" action="/choose-similar">{csrf(state)}
+<input type="hidden" name="stack_id" value="{esc(stack["id"])}">
+<input type="hidden" name="photo_id" value="{esc(member["id"])}">
+<button type="submit">Оставить этот кадр</button></form></div>"""
+            )
+        decision = {
+            "pending": "требует решения",
+            "chosen": "представитель выбран",
+            "keep_all": "оставлены все",
+        }.get(stack["decision"], stack["decision"])
+        cards.append(
+            f"""<div class="stack"><b>{"точные копии" if stack["kind"] == "exact" else "похожие кадры"}</b>
+ · {esc(decision)} · {len(stack["members"])} шт.<div class="members">{"".join(members)}</div>
+<form method="post" action="/keep-similar">{csrf(state)}
+<input type="hidden" name="stack_id" value="{esc(stack["id"])}">
+<button type="submit">Оставить все</button></form></div>"""
+        )
+    empty = "<p>Похожих групп не найдено: все проанализированные кадры оставлены.</p>"
+    return f"""<section class="card" id="similarity"><h2>4. Похожие кадры</h2>
+<p>{esc(job["message"])} Требуют решения: {pending}; оставлено: {selected}; отклонено: {rejected}.</p>
+<form method="post" action="/analyze-similarity">{csrf(state)}
+<button type="submit">Пересчитать анализ</button></form>
+<div class="stacks">{"".join(cards) if cards else empty}</div></section>"""
 
 
 def results_table(state, result_page=1):
@@ -490,7 +753,7 @@ def results_table(state, result_page=1):
             for number in range(1, total_pages + 1)
         )
         navigation = f'<p class="muted">Страницы: {links}</p>'
-    return f"""<section class="card"><h2>3. Логические дни и результат</h2>
+    return f"""<section class="card" id="days"><h2>3. Логические дни и результат</h2>
 <p class="summary">{summary}</p><p>{esc(days) or "Нет предложенных дней"} · без дня: {unassigned} · подтверждено: {confirmed}</p>
 <form method="post" action="/confirm-days">{csrf(state)}<button type="submit">Подтвердить все предложенные дни</button></form>
 {navigation}<table><thead><tr><th>Статус</th><th>Ключ</th><th>День</th><th>Файл</th><th>Камера</th><th>EXIF</th><th>UTC</th><th>Причина</th><th>Координаты</th></tr></thead>
@@ -501,15 +764,16 @@ def handler_class(state, logger, events_path):
     class Handler(BaseHTTPRequestHandler):
         server_version = "LRPL/0.1"
 
-        def secure_headers(self):
+        def secure_headers(self, cache_control="no-store"):
             self.send_header(
                 "Content-Security-Policy",
-                "default-src 'none'; style-src 'unsafe-inline'; form-action 'self'; base-uri 'none'",
+                "default-src 'none'; img-src 'self'; style-src 'unsafe-inline'; "
+                "form-action 'self'; base-uri 'none'",
             )
             self.send_header("X-Content-Type-Options", "nosniff")
             self.send_header("X-Frame-Options", "DENY")
             self.send_header("Referrer-Policy", "no-referrer")
-            self.send_header("Cache-Control", "no-store")
+            self.send_header("Cache-Control", cache_control)
 
         def send_html(self, body, status=200):
             content = body.encode("utf-8")
@@ -526,7 +790,33 @@ def handler_class(state, logger, events_path):
 
         def do_GET(self):
             parsed = urlparse(self.path)
-            if not self.valid_host() or parsed.path != "/":
+            if not self.valid_host():
+                self.send_error(404)
+                return
+            image_kind = next(
+                (kind for kind in ("thumbnail", "preview") if parsed.path.startswith(f"/{kind}/")),
+                None,
+            )
+            if image_kind:
+                photo_id = parsed.path.removeprefix(f"/{image_kind}/")
+                photo = state.photo(photo_id)
+                if photo is None or "/" in photo_id:
+                    self.send_error(404)
+                    return
+                try:
+                    size = (420, 300) if image_kind == "thumbnail" else (1600, 1200)
+                    content = thumbnail_bytes(photo.path, size)
+                except OSError:
+                    self.send_error(404)
+                    return
+                self.send_response(200)
+                self.send_header("Content-Type", "image/jpeg")
+                self.send_header("Content-Length", str(len(content)))
+                self.secure_headers("private, max-age=3600")
+                self.end_headers()
+                self.wfile.write(content)
+                return
+            if parsed.path != "/":
                 self.send_error(404)
                 return
             try:
@@ -599,6 +889,23 @@ def handler_class(state, logger, events_path):
                 elif path == "/confirm-days":
                     count = state.confirm_days()
                     product_event(events_path, "photo_days_confirmed", photos=count)
+                elif path == "/analyze-similarity":
+                    state.start_similarity_analysis()
+                    product_event(events_path, "similarity_analysis_started")
+                elif path == "/choose-similar":
+                    stack_id = form.get("stack_id", [""])[0]
+                    photo_id = form.get("photo_id", [""])[0]
+                    state.decide_similarity(stack_id, "chosen", photo_id)
+                    product_event(
+                        events_path,
+                        "similarity_representative_chosen",
+                        stack_id=stack_id,
+                        photo_id=photo_id,
+                    )
+                elif path == "/keep-similar":
+                    stack_id = form.get("stack_id", [""])[0]
+                    state.decide_similarity(stack_id, "keep_all")
+                    product_event(events_path, "similarity_all_kept", stack_id=stack_id)
                 else:
                     self.send_error(404)
                     return
@@ -615,6 +922,17 @@ def handler_class(state, logger, events_path):
             logger.info("HTTP %s - %s", self.address_string(), message % args)
 
     return Handler
+
+
+def thumbnail_bytes(path, max_size=(420, 300)):
+    with Image.open(path) as source:
+        image = ImageOps.exif_transpose(source)
+        image.thumbnail(max_size, getattr(Image, "Resampling", Image).LANCZOS)
+        if image.mode != "RGB":
+            image = image.convert("RGB")
+        output = io.BytesIO()
+        image.save(output, format="JPEG", quality=78, optimize=True)
+        return output.getvalue()
 
 
 def create_parser():
@@ -635,7 +953,14 @@ def main(argv=None):
     logger.info("Scanning photo clocks in %s", photo_root)
     index = LocalIndex(events_path.parent / "lrpl.sqlite3")
     photos, failures = index.scan(photo_root)
-    state = AppState(photo_root, photos, failures, center_url=args.center_url, index=index)
+    state = AppState(
+        photo_root,
+        photos,
+        failures,
+        center_url=args.center_url,
+        index=index,
+        events_path=events_path,
+    )
     product_event(events_path, "photo_clocks_scanned", photos=len(photos), failures=len(failures))
     server = ThreadingHTTPServer(
         ("127.0.0.1", args.port), handler_class(state, logger, events_path)

@@ -77,6 +77,13 @@ def test_version_one_index_is_migrated(tmp_path):
     connection = sqlite3.connect(database)
     connection.executescript(
         """
+        CREATE TABLE photos (
+            id TEXT PRIMARY KEY,
+            relative_path TEXT NOT NULL
+        );
+        CREATE TABLE batches (
+            id TEXT PRIMARY KEY
+        );
         CREATE TABLE batch_photos (
             batch_id TEXT NOT NULL,
             photo_id TEXT NOT NULL,
@@ -97,5 +104,62 @@ def test_version_one_index_is_migrated(tmp_path):
     version = index.connection.execute("PRAGMA user_version").fetchone()[0]
     index.close()
 
-    assert version == 2
-    assert {"logical_day", "day_confirmed"} <= columns
+    assert version == 3
+    assert {"logical_day", "day_confirmed", "filter_status"} <= columns
+
+
+def test_heavy_analysis_is_cached(tmp_path, monkeypatch):
+    root = tmp_path / "photos"
+    root.mkdir()
+    make_jpeg(root / "photo.jpg")
+    index = LocalIndex(tmp_path / "lrpl.sqlite3")
+    photos, _ = index.scan(root)
+
+    first, failures = index.analyze(photos)
+
+    def unexpected_read(_path):
+        raise AssertionError("Сохранённые отпечатки не должны вычисляться повторно")
+
+    monkeypatch.setattr("lrpl.index.read_photo", unexpected_read)
+    second, second_failures = index.analyze(photos)
+    index.close()
+
+    assert not failures
+    assert not second_failures
+    assert first == second
+    assert first[0].content_sha256
+    assert first[0].sharpness > 0
+
+
+def test_similarity_decisions_survive_reanalysis(tmp_path):
+    root = tmp_path / "photos"
+    root.mkdir()
+    make_jpeg(root / "first.jpg", quality=95)
+    make_jpeg(root / "second.jpg", quality=55)
+    index = LocalIndex(tmp_path / "lrpl.sqlite3")
+    photos, _ = index.scan(root)
+    analyzed, _ = index.analyze(photos)
+    results = [{"id": photo.id, "normalized_at_iso": None, "api_result": {}} for photo in photos]
+    batch_id = index.save_results(root, "report", {}, photos, results)
+    recommended = photos[max(range(2), key=lambda item: analyzed[item].sharpness)].id
+    stack = {
+        "kind": "visual",
+        "recommended": recommended,
+        "members": [photo.id for photo in photos],
+    }
+
+    stack_id = index.save_similarity(batch_id, [photo.id for photo in photos], [stack])[0]
+    assert set(index.filter_statuses(batch_id).values()) == {"unreviewed"}
+
+    index.decide_similarity(batch_id, stack_id, "chosen", recommended)
+    statuses = index.filter_statuses(batch_id)
+    assert statuses[recommended] == "selected"
+    assert sorted(statuses.values()) == ["rejected", "selected"]
+
+    index.save_similarity(batch_id, [photo.id for photo in photos], [stack])
+    assert index.similarity_stacks(batch_id)[0]["decision"] == "chosen"
+    assert index.filter_statuses(batch_id) == statuses
+
+    index.decide_similarity(batch_id, stack_id, "keep_all")
+    assert set(index.filter_statuses(batch_id).values()) == {"selected"}
+    index.close()

@@ -46,6 +46,11 @@ class PhotoBatch(models.Model):
 
 
 class PhotoAsset(models.Model):
+    class FilterStatus(models.TextChoices):
+        UNREVIEWED = "unreviewed", "не проверена"
+        SELECTED = "selected", "оставлена"
+        REJECTED = "rejected", "отклонена как похожая"
+
     public_id = models.UUIDField(default=uuid.uuid4, unique=True, editable=False)
     client_id = models.UUIDField("локальный идентификатор")
     photo_key = models.CharField(
@@ -68,6 +73,12 @@ class PhotoAsset(models.Model):
     captured_at_normalized = models.DateTimeField("нормализованное время", null=True, blank=True)
     logical_day = models.PositiveSmallIntegerField("логический день", null=True, blank=True)
     day_confirmed = models.BooleanField("логический день подтверждён", default=False)
+    filter_status = models.CharField(
+        "результат фильтрации",
+        max_length=10,
+        choices=FilterStatus.choices,
+        default=FilterStatus.UNREVIEWED,
+    )
     camera = models.CharField("камера", max_length=300, blank=True)
     content_sha256 = models.CharField("SHA-256 оригинала", max_length=64, blank=True)
     created_at = models.DateTimeField("создана", auto_now_add=True)

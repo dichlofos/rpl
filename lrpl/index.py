@@ -1,3 +1,4 @@
+import hashlib
 import json
 import sqlite3
 import threading
@@ -6,9 +7,19 @@ from dataclasses import dataclass
 from datetime import datetime
 from pathlib import Path
 
-from .metadata import JPEG_SUFFIXES, InvalidPhoto, read_photo_clock
+from .metadata import (
+    DIFFERENCE_HASH_VERSION,
+    JPEG_SUFFIXES,
+    PERCEPTUAL_HASH_VERSION,
+    SHARPNESS_VERSION,
+    InvalidPhoto,
+    PhotoMetadata,
+    read_photo,
+    read_photo_clock,
+)
 
-SCHEMA_VERSION = 2
+SCHEMA_VERSION = 3
+ANALYSIS_VERSION = f"{DIFFERENCE_HASH_VERSION}|{PERCEPTUAL_HASH_VERSION}|{SHARPNESS_VERSION}"
 
 
 @dataclass(frozen=True)
@@ -111,6 +122,37 @@ class LocalIndex:
                     PRAGMA user_version = 2;
                     """
                 )
+                version = 2
+            if version == 2:
+                self.connection.executescript(
+                    """
+                    ALTER TABLE photos ADD COLUMN source_format TEXT;
+                    ALTER TABLE photos ADD COLUMN width INTEGER;
+                    ALTER TABLE photos ADD COLUMN height INTEGER;
+                    ALTER TABLE photos ADD COLUMN content_sha256 TEXT;
+                    ALTER TABLE photos ADD COLUMN difference_hash TEXT;
+                    ALTER TABLE photos ADD COLUMN perceptual_hash TEXT;
+                    ALTER TABLE photos ADD COLUMN sharpness REAL;
+                    ALTER TABLE photos ADD COLUMN analysis_version TEXT;
+                    ALTER TABLE batch_photos ADD COLUMN filter_status TEXT NOT NULL DEFAULT 'unreviewed';
+                    CREATE TABLE similarity_stacks (
+                        id TEXT PRIMARY KEY,
+                        batch_id TEXT NOT NULL REFERENCES batches(id) ON DELETE CASCADE,
+                        kind TEXT NOT NULL,
+                        algorithm_version TEXT NOT NULL,
+                        decision TEXT NOT NULL DEFAULT 'pending',
+                        recommended_photo_id TEXT NOT NULL REFERENCES photos(id),
+                        chosen_photo_id TEXT REFERENCES photos(id),
+                        UNIQUE(batch_id, id)
+                    );
+                    CREATE TABLE similarity_members (
+                        stack_id TEXT NOT NULL REFERENCES similarity_stacks(id) ON DELETE CASCADE,
+                        photo_id TEXT NOT NULL REFERENCES photos(id) ON DELETE CASCADE,
+                        PRIMARY KEY(stack_id, photo_id)
+                    );
+                    PRAGMA user_version = 3;
+                    """
+                )
 
     def _root(self, root):
         root = str(Path(root).resolve())
@@ -183,6 +225,12 @@ class LocalIndex:
                     camera = metadata.camera
                     latitude = metadata.latitude
                     longitude = metadata.longitude
+                    self.connection.execute(
+                        """UPDATE photos SET source_format=NULL, width=NULL, height=NULL,
+                        content_sha256=NULL, difference_hash=NULL, perceptual_hash=NULL,
+                        sharpness=NULL, analysis_version=NULL WHERE id=?""",
+                        (photo_id,),
+                    )
                 self.connection.execute(
                     """INSERT INTO photos(
                         id, root_id, relative_path, file_size, file_mtime_ns,
@@ -310,3 +358,253 @@ class LocalIndex:
                 )
                 if updated.rowcount != 1:
                     raise KeyError(f"Фотография не входит в локальную пачку: {photo_id}")
+
+    def analyze(self, photos, progress=None):
+        analyzed = []
+        failures = []
+        total = len(photos)
+        for position, photo in enumerate(photos, 1):
+            with self.lock:
+                row = self.connection.execute(
+                    "SELECT * FROM photos WHERE id = ?", (photo.id,)
+                ).fetchone()
+            if row is None:
+                failures.append(IndexedFailure(photo.path, "Фотография отсутствует в индексе."))
+                if progress:
+                    progress(position, total, photo.relative_path)
+                continue
+            if row["analysis_version"] == ANALYSIS_VERSION and row["content_sha256"]:
+                metadata = PhotoMetadata(
+                    path=photo.path,
+                    source_format=row["source_format"],
+                    content_sha256=row["content_sha256"],
+                    width=row["width"],
+                    height=row["height"],
+                    captured_at=photo.captured_at,
+                    timezone_explicit=photo.timezone_explicit,
+                    camera=photo.camera,
+                    latitude=photo.latitude,
+                    longitude=photo.longitude,
+                    difference_hash=row["difference_hash"],
+                    perceptual_hash=row["perceptual_hash"],
+                    sharpness=row["sharpness"],
+                )
+            else:
+                try:
+                    stat = photo.path.stat()
+                except OSError as exc:
+                    failures.append(IndexedFailure(photo.path, f"Не удалось прочитать файл: {exc}"))
+                    if progress:
+                        progress(position, total, photo.relative_path)
+                    continue
+                if stat.st_size != photo.file_size or stat.st_mtime_ns != photo.file_mtime_ns:
+                    failures.append(
+                        IndexedFailure(
+                            photo.path, "Файл изменился после сканирования; перезапустите LRPL."
+                        )
+                    )
+                    if progress:
+                        progress(position, total, photo.relative_path)
+                    continue
+                try:
+                    metadata = read_photo(photo.path)
+                except InvalidPhoto as exc:
+                    failures.append(IndexedFailure(photo.path, str(exc)))
+                    if progress:
+                        progress(position, total, photo.relative_path)
+                    continue
+                with self.lock, self.connection:
+                    self.connection.execute(
+                        """UPDATE photos SET source_format=?, width=?, height=?,
+                        content_sha256=?, difference_hash=?, perceptual_hash=?, sharpness=?,
+                        analysis_version=? WHERE id=?""",
+                        (
+                            metadata.source_format,
+                            metadata.width,
+                            metadata.height,
+                            metadata.content_sha256,
+                            metadata.difference_hash,
+                            metadata.perceptual_hash,
+                            metadata.sharpness,
+                            ANALYSIS_VERSION,
+                            photo.id,
+                        ),
+                    )
+            analyzed.append(metadata)
+            if progress:
+                progress(position, total, photo.relative_path)
+        return analyzed, failures
+
+    def save_similarity(self, batch_id, photo_ids, stacks):
+        stack_ids = []
+        with self.lock, self.connection:
+            self.connection.execute(
+                "UPDATE batch_photos SET filter_status='unreviewed' WHERE batch_id=?",
+                (batch_id,),
+            )
+            for stack in stacks:
+                members = sorted(stack["members"])
+                signature = hashlib.sha256(
+                    (batch_id + "\0" + ANALYSIS_VERSION + "\0" + "\0".join(members)).encode()
+                ).hexdigest()[:32]
+                stack_ids.append(signature)
+                existing = self.connection.execute(
+                    "SELECT decision, chosen_photo_id FROM similarity_stacks WHERE id = ?",
+                    (signature,),
+                ).fetchone()
+                decision = existing["decision"] if existing else "pending"
+                chosen = existing["chosen_photo_id"] if existing else None
+                self.connection.execute(
+                    """INSERT INTO similarity_stacks(
+                        id, batch_id, kind, algorithm_version, decision,
+                        recommended_photo_id, chosen_photo_id
+                    ) VALUES (?, ?, ?, ?, ?, ?, ?)
+                    ON CONFLICT(id) DO UPDATE SET kind=excluded.kind,
+                        algorithm_version=excluded.algorithm_version,
+                        recommended_photo_id=excluded.recommended_photo_id""",
+                    (
+                        signature,
+                        batch_id,
+                        stack["kind"],
+                        ANALYSIS_VERSION,
+                        decision,
+                        stack["recommended"],
+                        chosen,
+                    ),
+                )
+                self.connection.execute(
+                    "DELETE FROM similarity_members WHERE stack_id = ?", (signature,)
+                )
+                self.connection.executemany(
+                    "INSERT INTO similarity_members(stack_id, photo_id) VALUES (?, ?)",
+                    [(signature, photo_id) for photo_id in members],
+                )
+            if stack_ids:
+                placeholders = ",".join("?" for _item in stack_ids)
+                self.connection.execute(
+                    f"DELETE FROM similarity_stacks WHERE batch_id = ? AND id NOT IN ({placeholders})",
+                    (batch_id, *stack_ids),
+                )
+            else:
+                self.connection.execute(
+                    "DELETE FROM similarity_stacks WHERE batch_id = ?", (batch_id,)
+                )
+            self.connection.executemany(
+                """UPDATE batch_photos SET filter_status='selected'
+                WHERE batch_id=? AND photo_id=?""",
+                [(batch_id, photo_id) for photo_id in photo_ids],
+            )
+            for stack_id in stack_ids:
+                stack = self.connection.execute(
+                    "SELECT decision, chosen_photo_id FROM similarity_stacks WHERE id=?",
+                    (stack_id,),
+                ).fetchone()
+                members = [
+                    row["photo_id"]
+                    for row in self.connection.execute(
+                        "SELECT photo_id FROM similarity_members WHERE stack_id=?", (stack_id,)
+                    )
+                ]
+                if stack["decision"] == "keep_all":
+                    continue
+                if stack["decision"] == "chosen" and stack["chosen_photo_id"] in members:
+                    statuses = [
+                        (
+                            "selected" if photo_id == stack["chosen_photo_id"] else "rejected",
+                            batch_id,
+                            photo_id,
+                        )
+                        for photo_id in members
+                    ]
+                else:
+                    statuses = [("unreviewed", batch_id, photo_id) for photo_id in members]
+                self.connection.executemany(
+                    """UPDATE batch_photos SET filter_status=?
+                    WHERE batch_id=? AND photo_id=?""",
+                    statuses,
+                )
+        return stack_ids
+
+    def similarity_stacks(self, batch_id):
+        with self.lock:
+            result = []
+            stacks = self.connection.execute(
+                """SELECT * FROM similarity_stacks WHERE batch_id=?
+                ORDER BY decision='pending' DESC, id""",
+                (batch_id,),
+            ).fetchall()
+            for stack in stacks:
+                members = self.connection.execute(
+                    """SELECT photos.id, photos.relative_path, photos.sharpness,
+                              batch_photos.filter_status
+                    FROM similarity_members
+                    JOIN photos ON photos.id=similarity_members.photo_id
+                    JOIN batch_photos ON batch_photos.photo_id=photos.id
+                                      AND batch_photos.batch_id=?
+                    WHERE similarity_members.stack_id=?
+                    ORDER BY photos.sharpness DESC, photos.relative_path""",
+                    (batch_id, stack["id"]),
+                ).fetchall()
+                result.append(
+                    {
+                        "id": stack["id"],
+                        "kind": stack["kind"],
+                        "decision": stack["decision"],
+                        "recommended": stack["recommended_photo_id"],
+                        "chosen": stack["chosen_photo_id"],
+                        "members": [dict(item) for item in members],
+                    }
+                )
+            return result
+
+    def decide_similarity(self, batch_id, stack_id, decision, photo_id=None):
+        with self.lock, self.connection:
+            stack = self.connection.execute(
+                "SELECT * FROM similarity_stacks WHERE id=? AND batch_id=?", (stack_id, batch_id)
+            ).fetchone()
+            if stack is None:
+                raise KeyError("Стопка похожих фотографий не найдена.")
+            members = [
+                row["photo_id"]
+                for row in self.connection.execute(
+                    "SELECT photo_id FROM similarity_members WHERE stack_id=?", (stack_id,)
+                )
+            ]
+            if decision == "chosen":
+                if photo_id not in members:
+                    raise KeyError("Выбранная фотография не входит в стопку.")
+                statuses = [
+                    ("selected" if item == photo_id else "rejected", batch_id, item)
+                    for item in members
+                ]
+            elif decision == "keep_all":
+                photo_id = None
+                statuses = [("selected", batch_id, item) for item in members]
+            else:
+                raise ValueError("Неизвестное решение по похожим фотографиям.")
+            self.connection.execute(
+                "UPDATE similarity_stacks SET decision=?, chosen_photo_id=? WHERE id=?",
+                (decision, photo_id, stack_id),
+            )
+            self.connection.executemany(
+                """UPDATE batch_photos SET filter_status=?
+                WHERE batch_id=? AND photo_id=?""",
+                statuses,
+            )
+
+    def filter_statuses(self, batch_id):
+        with self.lock:
+            return {
+                row["photo_id"]: row["filter_status"]
+                for row in self.connection.execute(
+                    "SELECT photo_id, filter_status FROM batch_photos WHERE batch_id=?",
+                    (batch_id,),
+                )
+            }
+
+    def analysis_values(self, photo_id):
+        with self.lock:
+            row = self.connection.execute(
+                "SELECT content_sha256, sharpness FROM photos WHERE id=?", (photo_id,)
+            ).fetchone()
+            return dict(row) if row else {}

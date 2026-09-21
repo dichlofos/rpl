@@ -51,6 +51,7 @@ class PhotoBatchApiTests(TestCase):
             "captured_at_normalized": "2026-07-18T09:05:00+00:00",
             "logical_day": 1,
             "day_confirmed": False,
+            "filter_status": "unreviewed",
             "camera": "Test Camera",
         }
         result.update(changes)
@@ -102,6 +103,7 @@ class PhotoBatchApiTests(TestCase):
                         placement=placement,
                         logical_day=3,
                         day_confirmed=True,
+                        filter_status="selected",
                     )
                 ]
             ),
@@ -117,6 +119,7 @@ class PhotoBatchApiTests(TestCase):
         asset = PhotoAsset.objects.get()
         self.assertEqual(asset.logical_day, 3)
         self.assertTrue(asset.day_confirmed)
+        self.assertEqual(asset.filter_status, "selected")
         self.assertEqual(asset.placement.track, self.track)
         self.assertAlmostEqual(asset.placement.point.x, 37.615)
 
@@ -181,6 +184,14 @@ class PhotoBatchApiTests(TestCase):
         response = self.post(
             self.payload([self.photo(self.photo_id, logical_day=None, day_confirmed=True)]),
             self.token,
+        )
+
+        self.assertEqual(response.status_code, 400)
+        self.assertFalse(PhotoAsset.objects.exists())
+
+    def test_rejects_unknown_filter_status(self):
+        response = self.post(
+            self.payload([self.photo(self.photo_id, filter_status="maybe")]), self.token
         )
 
         self.assertEqual(response.status_code, 400)
