@@ -733,7 +733,8 @@ def results_table(state, result_page=1):
             longitude = position["longitude"]
             coordinates = f"{latitude:.6f}, {longitude:.6f}"
             coordinate_cell = (
-                f'<a href="https://nakarte.me/#m=17/{latitude:.6f}/{longitude:.6f}&amp;l=O" '
+                f'<a href="https://nakarte.me/#m=17/{latitude:.6f}/{longitude:.6f}&amp;l=O'
+                f'&amp;q={latitude:.6f}%2C%20{longitude:.6f}" '
                 f'target="_blank" rel="noreferrer">{esc(coordinates)}</a>'
             )
         else:

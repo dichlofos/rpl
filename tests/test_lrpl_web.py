@@ -190,7 +190,10 @@ def test_state_suggests_offset_and_sends_normalized_utc(tmp_path):
     rendered = page(state)
     assert f'href="/preview/{photo.id}"' in rendered
     assert "file://" not in rendered
-    assert 'href="https://nakarte.me/#m=17/50.000000/80.000000&amp;l=O"' in rendered
+    assert (
+        'href="https://nakarte.me/#m=17/50.000000/80.000000&amp;l=O'
+        '&amp;q=50.000000%2C%2080.000000"' in rendered
+    )
 
     state.set_logical_day(photo.id, 2)
     assert state.results[0]["logical_day"] == 2
