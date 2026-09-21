@@ -17,6 +17,7 @@ from .index import LocalIndex
 from .logging_setup import product_event, setup_logging
 
 MAX_FORM_SIZE = 1024 * 1024
+RESULTS_PER_PAGE = 500
 
 
 def parse_iso_datetime(value):
@@ -80,6 +81,10 @@ class AppState:
         self.selected_report_id = None
         self.calibrations = []
         self.results = []
+        self.batch_id = None
+        self.offsets = {}
+        self.track_days = {}
+        self.calendar_days = {}
         self.error = ""
         self.csrf_token = secrets.token_urlsafe(32)
         self.lock = threading.RLock()
@@ -94,17 +99,28 @@ class AppState:
             self.selected_report_id = None
             self.calibrations = []
             self.results = []
+            self.batch_id = None
+            self.offsets = {}
+            self.track_days = {}
+            self.calendar_days = {}
 
     def select_report(self, report_id):
         if report_id not in {report["id"] for report in self.reports}:
             raise ValueError("Выбран неизвестный отчёт.")
         timeline = self.client.report_timelines(report_id)
         intervals = []
+        track_dates = {}
         for track in timeline["tracks"]:
             start = parse_iso_datetime(track.get("started_at"))
             finish = parse_iso_datetime(track.get("finished_at"))
             if start and finish:
                 intervals.append((start, finish))
+                track_dates[track["id"]] = start.date()
+
+        calendar_dates = sorted(set(track_dates.values()))
+        if len(calendar_dates) > 99:
+            raise ValueError("В выбранных треках найдено больше 99 календарных дней.")
+        calendar_days = {value: index + 1 for index, value in enumerate(calendar_dates)}
 
         grouped = defaultdict(list)
         for photo in self.photos:
@@ -134,6 +150,12 @@ class AppState:
             self.selected_report_id = report_id
             self.calibrations = calibrations
             self.results = []
+            self.batch_id = None
+            self.offsets = {}
+            self.calendar_days = calendar_days
+            self.track_days = {
+                track_id: calendar_days[value] for track_id, value in track_dates.items()
+            }
 
     def match(self, offset_values, max_gap_seconds):
         offsets = {
@@ -186,10 +208,45 @@ class AppState:
                     "api_result": result,
                 }
             )
-        order = {"ambiguous": 0, "unmatched": 1, "invalid": 2, "matched": 3}
-        enriched.sort(key=lambda item: (order.get(item["status"], 9), item["path"]))
+        if self.calendar_days:
+            proposed_days = self.calendar_days
+        else:
+            dates = sorted({moment.date() for _photo, moment in photo_by_id.values() if moment})
+            if len(dates) > 99:
+                raise ValueError(
+                    "После калибровки найдено больше 99 различных дат; исправьте исходные данные."
+                )
+            proposed_days = {value: index + 1 for index, value in enumerate(dates)}
+        stored_days = (
+            self.index.day_assignments(self.photo_root, self.selected_report_id)
+            if self.index is not None
+            else {}
+        )
+        for item in enriched:
+            photo, moment = photo_by_id[item["id"]]
+            stored_day, confirmed = stored_days.get(photo.id, (None, False))
+            position = item.get("position") or {}
+            track_day = self.track_days.get(position.get("track_id"))
+            if confirmed:
+                logical_day = stored_day
+            elif track_day is not None:
+                logical_day = track_day
+            elif moment:
+                logical_day = proposed_days.get(moment.date())
+            else:
+                logical_day = None
+            item["logical_day"] = logical_day
+            item["day_confirmed"] = confirmed
+        enriched.sort(
+            key=lambda item: (
+                item["logical_day"] if item["logical_day"] is not None else 100,
+                str(item["captured_at"] or ""),
+                item["path"],
+            )
+        )
         with self.lock:
             self.results = enriched
+            self.offsets = dict(offsets)
         calibration = dict(offsets)
         if self.index is not None:
             batch_id = self.index.save_results(
@@ -199,23 +256,56 @@ class AppState:
                 self.photos,
                 enriched,
             )
-            result_by_id = {item["id"]: item for item in enriched}
-            server_photos = [
-                self._server_photo(photo, offsets[photo.camera], result_by_id[photo.id])
-                for photo in self.photos
-            ]
-            response = self.client.register_photo_batch(
-                self.selected_report_id,
+            self.index.save_day_assignments(
                 batch_id,
-                self.photo_root.name,
-                calibration,
-                server_photos,
+                {item["id"]: (item["logical_day"], item["day_confirmed"]) for item in enriched},
             )
-            self.index.save_server_response(batch_id, response)
-            keys = {item["client_id"]: item["photo_key"] for item in response["photos"]}
-            for item in enriched:
-                item["photo_key"] = keys.get(item["id"])
+            self.batch_id = batch_id
+            self._sync_results(enriched)
         return Counter(item["status"] for item in enriched)
+
+    def set_logical_day(self, photo_id, logical_day):
+        if not 1 <= logical_day <= 99:
+            raise ValueError("Логический день должен быть от 1 до 99.")
+        result = next((item for item in self.results if item["id"] == photo_id), None)
+        if result is None:
+            raise ValueError("Фотография не найдена в текущей пачке.")
+        result["logical_day"] = logical_day
+        result["day_confirmed"] = True
+        self.index.save_day_assignments(self.batch_id, {photo_id: (logical_day, True)})
+        self._sync_results([result])
+
+    def confirm_days(self):
+        assigned = [item for item in self.results if item["logical_day"] is not None]
+        for item in assigned:
+            item["day_confirmed"] = True
+        assignments = {item["id"]: (item["logical_day"], True) for item in assigned}
+        self.index.save_day_assignments(self.batch_id, assignments)
+        self._sync_results(assigned)
+        return len(assigned)
+
+    def _sync_results(self, results):
+        photo_by_id = {photo.id: photo for photo in self.photos}
+        server_photos = [
+            self._server_photo(
+                photo_by_id[result["id"]],
+                self.offsets[photo_by_id[result["id"]].camera],
+                result,
+            )
+            for result in results
+        ]
+        response = self.client.register_photo_batch(
+            self.selected_report_id,
+            self.batch_id,
+            self.photo_root.name or "photos",
+            self.offsets,
+            server_photos,
+        )
+        self.index.save_server_response(self.batch_id, response)
+        keys = {item["client_id"]: item["photo_key"] for item in response["photos"]}
+        for item in results:
+            if item["id"] in keys:
+                item["photo_key"] = keys[item["id"]]
 
     @staticmethod
     def _server_photo(photo, offset, result):
@@ -262,6 +352,8 @@ class AppState:
             "timezone_explicit": photo.timezone_explicit,
             "time_offset_seconds": offset,
             "captured_at_normalized": result["normalized_at_iso"],
+            "logical_day": result["logical_day"],
+            "day_confirmed": result["day_confirmed"],
             "camera": photo.camera,
             "placement": placement,
         }
@@ -271,9 +363,9 @@ def esc(value):
     return html.escape(str(value), quote=True)
 
 
-def page(state):
+def page(state, result_page=1):
     error = f'<div class="error">{esc(state.error)}</div>' if state.error else ""
-    content = connect_form(state) if state.client is None else workspace(state)
+    content = connect_form(state) if state.client is None else workspace(state, result_page)
     return f"""<!doctype html>
 <html lang="ru"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width">
 <title>LRPL — привязка фотографий</title>
@@ -306,7 +398,7 @@ def connect_form(state):
 <p class="muted">Токен живёт только в памяти до завершения LRPL.</p></section>"""
 
 
-def workspace(state):
+def workspace(state, result_page=1):
     report_options = "".join(
         f'<option value="{esc(item["id"])}"'
         f"{' selected' if item['id'] == state.selected_report_id else ''}>"
@@ -331,10 +423,10 @@ def workspace(state):
 <tbody>{rows}</tbody></table><label>Максимальный разрыв трека, секунд</label>
 <input type="text" name="max_gap_seconds" value="900" required>
 <button type="submit">Привязать фотографии</button></form></section>"""
-    return report_form + calibration + results_table(state)
+    return report_form + calibration + results_table(state, result_page)
 
 
-def results_table(state):
+def results_table(state, result_page=1):
     if not state.results:
         return ""
     counts = Counter(item["status"] for item in state.results)
@@ -342,8 +434,24 @@ def results_table(state):
         f'<span class="{esc(status)}">{esc(status)}: {count}</span>'
         for status, count in sorted(counts.items())
     )
+    day_items = defaultdict(list)
+    for item in state.results:
+        if item["logical_day"] is not None:
+            day_items[item["logical_day"]].append(item)
+    day_summaries = []
+    for day, items in sorted(day_items.items()):
+        source_dates = sorted({item["captured_at"].date() for item in items if item["captured_at"]})
+        dates = ", ".join(value.strftime("%d.%m") for value in source_dates) or "без даты"
+        day_summaries.append(f"день {day:02d} ({dates}): {len(items)}")
+    days = " · ".join(day_summaries)
+    unassigned = sum(item["logical_day"] is None for item in state.results)
+    confirmed = sum(item["day_confirmed"] for item in state.results)
+    total_pages = max(1, (len(state.results) + RESULTS_PER_PAGE - 1) // RESULTS_PER_PAGE)
+    result_page = min(max(result_page, 1), total_pages)
+    start = (result_page - 1) * RESULTS_PER_PAGE
+    visible_results = state.results[start : start + RESULTS_PER_PAGE]
     rows = []
-    for item in state.results[:2000]:
+    for item in visible_results:
         position = item.get("position") or {}
         coordinates = (
             f"{position.get('latitude', 0):.6f}, {position.get('longitude', 0):.6f}"
@@ -351,21 +459,42 @@ def results_table(state):
             else "—"
         )
         reason = item.get("reason") or position.get("method", "")
+        day_value = item["logical_day"] if item["logical_day"] is not None else ""
+        if item["day_confirmed"]:
+            day_mark = "подтверждён"
+        elif item["logical_day"] is not None:
+            day_mark = "предложен"
+        else:
+            day_mark = "не назначен"
+        day_form = f"""<form method="post" action="/set-day">{csrf(state)}
+<input type="hidden" name="photo_id" value="{esc(item["id"])}">
+<input type="hidden" name="return_page" value="{result_page}">
+<input type="number" name="logical_day" min="1" max="99" value="{day_value}" required
+ aria-label="Логический день для {esc(item["path"])}">
+<button type="submit">✓</button><small class="muted">{day_mark}</small></form>"""
         rows.append(
             f'<tr><td class="{esc(item["status"])}">{esc(item["status"])}</td>'
             f"<td><code>{esc(item.get('photo_key') or '—')}</code></td>"
+            f"<td>{day_form}</td>"
             f"<td><code>{esc(item['path'])}</code></td><td>{esc(item['camera'])}</td>"
+            f"<td>{esc(item['captured_at'] or '—')}</td>"
             f"<td>{esc(item['normalized_at'] or '—')}</td><td>{esc(reason)}</td>"
             f"<td>{esc(coordinates)}</td></tr>"
         )
-    truncated = (
-        f'<p class="muted">Показаны первые 2000 из {len(state.results)} результатов.</p>'
-        if len(state.results) > 2000
-        else ""
-    )
-    return f"""<section class="card"><h2>3. Результат</h2><p class="summary">{summary}</p>{truncated}
-<table><thead><tr><th>Статус</th><th>Ключ</th><th>Файл</th><th>Камера</th><th>UTC</th><th>Причина</th><th>Координаты</th></tr></thead>
-<tbody>{"".join(rows)}</tbody></table></section>"""
+    navigation = ""
+    if total_pages > 1:
+        links = " ".join(
+            f'<a href="/?page={number}">{number}</a>'
+            if number != result_page
+            else f"<b>{number}</b>"
+            for number in range(1, total_pages + 1)
+        )
+        navigation = f'<p class="muted">Страницы: {links}</p>'
+    return f"""<section class="card"><h2>3. Логические дни и результат</h2>
+<p class="summary">{summary}</p><p>{esc(days) or "Нет предложенных дней"} · без дня: {unassigned} · подтверждено: {confirmed}</p>
+<form method="post" action="/confirm-days">{csrf(state)}<button type="submit">Подтвердить все предложенные дни</button></form>
+{navigation}<table><thead><tr><th>Статус</th><th>Ключ</th><th>День</th><th>Файл</th><th>Камера</th><th>EXIF</th><th>UTC</th><th>Причина</th><th>Координаты</th></tr></thead>
+<tbody>{"".join(rows)}</tbody></table>{navigation}</section>"""
 
 
 def handler_class(state, logger, events_path):
@@ -396,10 +525,15 @@ def handler_class(state, logger, events_path):
             return self.headers.get("Host") in {f"127.0.0.1:{port}", f"localhost:{port}"}
 
         def do_GET(self):
-            if not self.valid_host() or urlparse(self.path).path != "/":
+            parsed = urlparse(self.path)
+            if not self.valid_host() or parsed.path != "/":
                 self.send_error(404)
                 return
-            self.send_html(page(state))
+            try:
+                result_page = int(parse_qs(parsed.query).get("page", ["1"])[0])
+            except ValueError:
+                result_page = 1
+            self.send_html(page(state, result_page))
 
         def do_POST(self):
             if not self.valid_host():
@@ -430,6 +564,7 @@ def handler_class(state, logger, events_path):
                 self.send_error(403)
                 return
             path = urlparse(self.path).path
+            location = "/"
             try:
                 if path == "/connect":
                     state.connect(form.get("center_url", [""])[0], form.get("token", [""])[0])
@@ -449,6 +584,21 @@ def handler_class(state, logger, events_path):
                         raise ValueError("Разрыв должен быть от 1 до 86400 секунд.")
                     counts = state.match(offsets, max_gap)
                     product_event(events_path, "photos_matched", **dict(counts))
+                elif path == "/set-day":
+                    photo_id = form.get("photo_id", [""])[0]
+                    logical_day = int(form.get("logical_day", [""])[0])
+                    return_page = max(1, int(form.get("return_page", ["1"])[0]))
+                    state.set_logical_day(photo_id, logical_day)
+                    location = f"/?page={return_page}"
+                    product_event(
+                        events_path,
+                        "photo_day_changed",
+                        photo_id=photo_id,
+                        logical_day=logical_day,
+                    )
+                elif path == "/confirm-days":
+                    count = state.confirm_days()
+                    product_event(events_path, "photo_days_confirmed", photos=count)
                 else:
                     self.send_error(404)
                     return
@@ -457,7 +607,7 @@ def handler_class(state, logger, events_path):
                 state.error = str(exc)
                 logger.warning("Request %s failed: %s", path, exc)
             self.send_response(303)
-            self.send_header("Location", "/")
+            self.send_header("Location", location)
             self.secure_headers()
             self.end_headers()
 

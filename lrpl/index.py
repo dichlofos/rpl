@@ -8,7 +8,7 @@ from pathlib import Path
 
 from .metadata import JPEG_SUFFIXES, InvalidPhoto, read_photo_clock
 
-SCHEMA_VERSION = 1
+SCHEMA_VERSION = 2
 
 
 @dataclass(frozen=True)
@@ -100,6 +100,15 @@ class LocalIndex:
                         PRIMARY KEY(batch_id, photo_id)
                     );
                     PRAGMA user_version = 1;
+                    """
+                )
+                version = 1
+            if version == 1:
+                self.connection.executescript(
+                    """
+                    ALTER TABLE batch_photos ADD COLUMN logical_day INTEGER;
+                    ALTER TABLE batch_photos ADD COLUMN day_confirmed INTEGER NOT NULL DEFAULT 0;
+                    PRAGMA user_version = 2;
                     """
                 )
 
@@ -275,3 +284,29 @@ class LocalIndex:
                     WHERE batch_id = ? AND photo_id = ?""",
                     (item["id"], item["photo_key"], batch_id, item["client_id"]),
                 )
+
+    def day_assignments(self, root, report_id):
+        with self.lock:
+            rows = self.connection.execute(
+                """SELECT batch_photos.photo_id, batch_photos.logical_day,
+                          batch_photos.day_confirmed
+                FROM batch_photos
+                JOIN batches ON batches.id = batch_photos.batch_id
+                JOIN photo_roots ON photo_roots.id = batches.root_id
+                WHERE photo_roots.path = ? AND batches.report_id = ?""",
+                (str(Path(root).resolve()), report_id),
+            )
+            return {
+                row["photo_id"]: (row["logical_day"], bool(row["day_confirmed"])) for row in rows
+            }
+
+    def save_day_assignments(self, batch_id, assignments):
+        with self.lock, self.connection:
+            for photo_id, (logical_day, confirmed) in assignments.items():
+                updated = self.connection.execute(
+                    """UPDATE batch_photos SET logical_day = ?, day_confirmed = ?
+                    WHERE batch_id = ? AND photo_id = ?""",
+                    (logical_day, int(confirmed), batch_id, photo_id),
+                )
+                if updated.rowcount != 1:
+                    raise KeyError(f"Фотография не входит в локальную пачку: {photo_id}")

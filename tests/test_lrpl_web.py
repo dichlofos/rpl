@@ -45,6 +45,7 @@ class FakeCenter:
         return {
             "tracks": [
                 {
+                    "id": "1aa16638-a09a-4636-9a22-4fc051f60623",
                     "started_at": "2026-07-18T09:00:00Z",
                     "finished_at": "2026-07-18T09:30:00Z",
                 }
@@ -172,8 +173,19 @@ def test_state_suggests_offset_and_sends_normalized_utc(tmp_path):
     assert center.items[0]["captured_at"] == "2026-07-18T09:05:00+00:00"
     assert state.results[0]["path"] == "photo.jpg"
     assert state.results[0]["photo_key"] == "4c7f1234"
+    assert state.results[0]["logical_day"] == 1
+    assert not state.results[0]["day_confirmed"]
     assert center.batch["photos"][0]["time_offset_seconds"] == -10_800
     assert center.batch["photos"][0]["placement"]["source"] == "track"
+
+    state.set_logical_day(photo.id, 2)
+    assert state.results[0]["logical_day"] == 2
+    assert state.results[0]["day_confirmed"]
+    assert center.batch["photos"][0]["logical_day"] == 2
+
+    state.match({"0": "-03:00"}, 900)
+    assert state.results[0]["logical_day"] == 2
+    assert state.confirm_days() == 1
     index.close()
 
 

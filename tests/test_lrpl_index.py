@@ -46,6 +46,7 @@ def test_results_and_server_ids_survive_reopening_index(tmp_path):
             }
         ],
     )
+    index.save_day_assignments(batch_id, {photo.id: (4, True)})
     index.save_server_response(
         batch_id,
         {
@@ -65,3 +66,36 @@ def test_results_and_server_ids_survive_reopening_index(tmp_path):
     assert stored["server_id"] == "server-photo"
     assert stored["photo_key"] == "4c7f1234"
     assert stored["time_offset_seconds"] == -10_800
+    assert stored["logical_day"] == 4
+    assert stored["day_confirmed"] == 1
+
+
+def test_version_one_index_is_migrated(tmp_path):
+    import sqlite3
+
+    database = tmp_path / "lrpl.sqlite3"
+    connection = sqlite3.connect(database)
+    connection.executescript(
+        """
+        CREATE TABLE batch_photos (
+            batch_id TEXT NOT NULL,
+            photo_id TEXT NOT NULL,
+            time_offset_seconds INTEGER NOT NULL DEFAULT 0,
+            normalized_at TEXT,
+            result_json TEXT NOT NULL DEFAULT '{}',
+            server_id TEXT,
+            photo_key TEXT,
+            PRIMARY KEY(batch_id, photo_id)
+        );
+        PRAGMA user_version = 1;
+        """
+    )
+    connection.close()
+
+    index = LocalIndex(database)
+    columns = {row["name"] for row in index.connection.execute("PRAGMA table_info(batch_photos)")}
+    version = index.connection.execute("PRAGMA user_version").fetchone()[0]
+    index.close()
+
+    assert version == 2
+    assert {"logical_day", "day_confirmed"} <= columns

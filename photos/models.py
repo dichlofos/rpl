@@ -66,6 +66,8 @@ class PhotoAsset(models.Model):
     timezone_explicit = models.BooleanField("часовой пояс задан", default=False)
     time_offset_seconds = models.IntegerField("поправка времени, с", default=0)
     captured_at_normalized = models.DateTimeField("нормализованное время", null=True, blank=True)
+    logical_day = models.PositiveSmallIntegerField("логический день", null=True, blank=True)
+    day_confirmed = models.BooleanField("логический день подтверждён", default=False)
     camera = models.CharField("камера", max_length=300, blank=True)
     content_sha256 = models.CharField("SHA-256 оригинала", max_length=64, blank=True)
     created_at = models.DateTimeField("создана", auto_now_add=True)
@@ -76,7 +78,16 @@ class PhotoAsset(models.Model):
         constraints: ClassVar[list] = [
             models.UniqueConstraint(
                 fields=["batch", "client_id"], name="unique_batch_photo_client_id"
-            )
+            ),
+            models.CheckConstraint(
+                condition=models.Q(logical_day__isnull=True)
+                | models.Q(logical_day__gte=1, logical_day__lte=99),
+                name="photo_logical_day_between_1_and_99",
+            ),
+            models.CheckConstraint(
+                condition=models.Q(day_confirmed=False) | models.Q(logical_day__isnull=False),
+                name="confirmed_photo_has_logical_day",
+            ),
         ]
         verbose_name = "фотография"
         verbose_name_plural = "фотографии"

@@ -12,7 +12,15 @@ class PhotoBatchAdmin(admin.ModelAdmin):
 
 @admin.register(PhotoAsset)
 class PhotoAssetAdmin(admin.ModelAdmin):
-    list_display = ("photo_key", "relative_path", "batch", "captured_at_normalized")
+    list_display = (
+        "photo_key",
+        "relative_path",
+        "batch",
+        "logical_day",
+        "day_confirmed",
+        "captured_at_normalized",
+    )
+    list_filter = ("day_confirmed", "logical_day")
     search_fields = ("photo_key", "relative_path", "camera")
     readonly_fields = ("public_id", "photo_key", "client_id", "created_at", "updated_at")
 

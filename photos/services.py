@@ -130,6 +130,14 @@ def validate_payload(report, payload):
             raise ValidationError("client_id фотографий не должны повторяться.")
         identifiers.add(photo_id)
         raw_time = item.get("captured_at_raw") or ""
+        logical_day = (
+            _integer(item["logical_day"], "logical_day", minimum=1, maximum=99)
+            if item.get("logical_day") is not None
+            else None
+        )
+        day_confirmed = _boolean(item.get("day_confirmed", False), "day_confirmed")
+        if day_confirmed and logical_day is None:
+            raise ValidationError("Нельзя подтвердить фотографию без логического дня.")
         photos.append(
             {
                 "client_id": photo_id,
@@ -147,6 +155,8 @@ def validate_payload(report, payload):
                     maximum=86400,
                 ),
                 "captured_at_normalized": _normalized_time(item.get("captured_at_normalized")),
+                "logical_day": logical_day,
+                "day_confirmed": day_confirmed,
                 "camera": _text(item.get("camera", ""), "camera", 300, blank=True),
                 "content_sha256": _text(
                     item.get("content_sha256", ""), "content_sha256", 64, blank=True
@@ -205,6 +215,8 @@ def register_photo_batch(user, report, payload):
         "timezone_explicit",
         "time_offset_seconds",
         "captured_at_normalized",
+        "logical_day",
+        "day_confirmed",
         "camera",
         "content_sha256",
         "updated_at",

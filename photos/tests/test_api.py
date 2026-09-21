@@ -49,6 +49,8 @@ class PhotoBatchApiTests(TestCase):
             "timezone_explicit": False,
             "time_offset_seconds": -10_800,
             "captured_at_normalized": "2026-07-18T09:05:00+00:00",
+            "logical_day": 1,
+            "day_confirmed": False,
             "camera": "Test Camera",
         }
         result.update(changes)
@@ -93,7 +95,17 @@ class PhotoBatchApiTests(TestCase):
             "confirmed": False,
         }
         response = self.post(
-            self.payload([self.photo(self.photo_id, placement=placement)]), self.token
+            self.payload(
+                [
+                    self.photo(
+                        self.photo_id,
+                        placement=placement,
+                        logical_day=3,
+                        day_confirmed=True,
+                    )
+                ]
+            ),
+            self.token,
         )
 
         self.assertEqual(response.status_code, 200)
@@ -103,6 +115,8 @@ class PhotoBatchApiTests(TestCase):
         self.assertEqual(PhotoPlacement.objects.count(), 1)
         self.assertRegex(first["photos"][0]["photo_key"], re.compile(r"^[0-9a-f]{8}$"))
         asset = PhotoAsset.objects.get()
+        self.assertEqual(asset.logical_day, 3)
+        self.assertTrue(asset.day_confirmed)
         self.assertEqual(asset.placement.track, self.track)
         self.assertAlmostEqual(asset.placement.point.x, 37.615)
 
@@ -161,6 +175,15 @@ class PhotoBatchApiTests(TestCase):
 
         self.assertEqual(bad_track.status_code, 400)
         self.assertEqual(bad_path.status_code, 400)
+        self.assertFalse(PhotoAsset.objects.exists())
+
+    def test_rejects_confirmed_photo_without_day(self):
+        response = self.post(
+            self.payload([self.photo(self.photo_id, logical_day=None, day_confirmed=True)]),
+            self.token,
+        )
+
+        self.assertEqual(response.status_code, 400)
         self.assertFalse(PhotoAsset.objects.exists())
 
     def test_local_batch_cannot_move_to_another_report(self):
