@@ -11,6 +11,8 @@ from lrpl.index import LocalIndex
 from lrpl.metadata import scan_photo_clocks
 from lrpl.webapp import (
     AppState,
+    compact_offset,
+    format_local_time,
     format_offset,
     normalized_time,
     page,
@@ -178,6 +180,7 @@ def test_state_suggests_offset_and_sends_normalized_utc(tmp_path):
     state.select_report("report-1")
 
     assert state.calibrations[0].suggested_offset_seconds == -3 * 60 * 60
+    assert state.suggested_local_time_offset_seconds == 3 * 60 * 60
     counts = state.match({"0": "-03:00"}, 900)
     assert counts == {"matched": 1}
     assert center.items[0]["captured_at"] == "2026-07-18T09:05:00+00:00"
@@ -189,7 +192,13 @@ def test_state_suggests_offset_and_sends_normalized_utc(tmp_path):
     assert center.batch["photos"][0]["placement"]["source"] == "track"
     rendered = page(state)
     assert f'href="/preview/{photo.id}"' in rendered
+    assert f'src="/thumbnail/{photo.id}"' in rendered
     assert "file://" not in rendered
+    assert "18.07 12:05:00 +3" in rendered
+    assert "12:05:00.000" not in rendered
+    assert 'id="results-map"' in rendered
+    assert 'src="/assets/results-map.js"' in rendered
+    assert 'data-latitude="50.00000000"' in rendered
     assert (
         'href="https://nakarte.me/#m=17/50.000000/80.000000&amp;l=O'
         '&amp;q=50.000000%2C%2080.000000"' in rendered
@@ -215,10 +224,13 @@ def test_offsets_and_explicit_timezone_normalization():
     assert parse_offset("+03:30") == 12_600
     assert parse_offset("-03:00") == -10_800
     assert format_offset(-10_800) == "-03:00"
+    assert compact_offset(10_800) == "+3"
+    assert compact_offset(-12_600) == "−3:30"
     with pytest.raises(ValueError):
         parse_offset("3 hours")
     value = datetime(2026, 7, 18, 12, 0, tzinfo=timezone(timedelta(hours=3)))
     assert normalized_time(value, 0).isoformat() == "2026-07-18T09:00:00+00:00"
+    assert format_local_time(value, 3 * 60 * 60) == "18.07 12:00:00 +3"
 
 
 def test_origin_check_accepts_loopback_and_opaque_webview():

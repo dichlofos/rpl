@@ -18,6 +18,7 @@ from .calibration import suggest_time_offsets
 from .center import CenterClient, CenterError
 from .index import LocalIndex
 from .logging_setup import product_event, setup_logging
+from .results_map import RESULTS_MAP_JS
 from .similarity import group_similar_photos, group_temporal_episodes
 
 MAX_FORM_SIZE = 1024 * 1024
@@ -39,6 +40,20 @@ def format_offset(seconds):
     sign = "+" if seconds >= 0 else "-"
     hours, minutes = divmod(abs(int(seconds)) // 60, 60)
     return f"{sign}{hours:02d}:{minutes:02d}"
+
+
+def compact_offset(seconds):
+    sign = "+" if seconds >= 0 else "−"
+    hours, minutes = divmod(abs(int(seconds)) // 60, 60)
+    return f"{sign}{hours}" if minutes == 0 else f"{sign}{hours}:{minutes:02d}"
+
+
+def format_local_time(value, offset_seconds):
+    if value is None:
+        return "—"
+    zone = timezone(timedelta(seconds=offset_seconds))
+    local = value.astimezone(zone) if value.tzinfo else value.replace(tzinfo=zone)
+    return f"{local:%d.%m %H:%M:%S} {compact_offset(offset_seconds)}"
 
 
 def parse_offset(value):
@@ -105,6 +120,8 @@ class AppState:
         self.results = []
         self.batch_id = None
         self.offsets = {}
+        self.local_time_offset_seconds = 0
+        self.suggested_local_time_offset_seconds = 0
         self.track_days = {}
         self.calendar_days = {}
         self.similarity_stacks = []
@@ -125,6 +142,8 @@ class AppState:
             self.results = []
             self.batch_id = None
             self.offsets = {}
+            self.local_time_offset_seconds = 0
+            self.suggested_local_time_offset_seconds = 0
             self.track_days = {}
             self.calendar_days = {}
             self.similarity_stacks = []
@@ -172,12 +191,34 @@ class AppState:
                     suggested_offset_seconds=offset,
                 )
             )
+        explicit_offsets = [
+            round(photo.captured_at.utcoffset().total_seconds())
+            for photo in self.photos
+            if photo.captured_at
+            and photo.timezone_explicit
+            and photo.captured_at.utcoffset() is not None
+        ]
+        if explicit_offsets:
+            suggested_local_offset = Counter(explicit_offsets).most_common(1)[0][0]
+        elif calibrations:
+            weighted_offsets = [
+                -calibration.suggested_offset_seconds
+                for calibration in calibrations
+                for _item in range(calibration.timed_count)
+            ]
+            suggested_local_offset = (
+                Counter(weighted_offsets).most_common(1)[0][0] if weighted_offsets else 0
+            )
+        else:
+            suggested_local_offset = 0
         with self.lock:
             self.selected_report_id = report_id
             self.calibrations = calibrations
             self.results = []
             self.batch_id = None
             self.offsets = {}
+            self.local_time_offset_seconds = suggested_local_offset
+            self.suggested_local_time_offset_seconds = suggested_local_offset
             self.calendar_days = calendar_days
             self.track_days = {
                 track_id: calendar_days[value] for track_id, value in track_dates.items()
@@ -185,7 +226,7 @@ class AppState:
             self.similarity_stacks = []
             self.similarity_job = {"status": "idle", "current": 0, "total": 0, "message": ""}
 
-    def match(self, offset_values, max_gap_seconds):
+    def match(self, offset_values, max_gap_seconds, local_time_offset_seconds=None):
         offsets = {
             calibration.name: parse_offset(offset_values[str(calibration.index)])
             for calibration in self.calibrations
@@ -275,6 +316,11 @@ class AppState:
         with self.lock:
             self.results = enriched
             self.offsets = dict(offsets)
+            self.local_time_offset_seconds = (
+                self.suggested_local_time_offset_seconds
+                if local_time_offset_seconds is None
+                else local_time_offset_seconds
+            )
         calibration = dict(offsets)
         if self.index is not None:
             batch_id = self.index.save_results(
@@ -562,12 +608,23 @@ def page(state, result_page=1):
         if state.similarity_job["status"] == "running"
         else ""
     )
+    map_head = (
+        '<link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css">'
+        if state.results
+        else ""
+    )
+    map_scripts = (
+        '<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>'
+        '<script src="/assets/results-map.js"></script>'
+        if state.results
+        else ""
+    )
     return f"""<!doctype html>
 <html lang="ru"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width">
-<title>LRPL — привязка фотографий</title>{refresh}
+<title>LRPL — привязка фотографий</title>{refresh}{map_head}
 <style>
 body{{font:15px system-ui,sans-serif;margin:0;background:#f4f5f7;color:#20242a}}
-main{{max-width:1180px;margin:0 auto;padding:28px}}h1,h2{{margin:.2em 0 .7em}}
+main{{max-width:none;margin:0;padding:28px}}h1,h2{{margin:.2em 0 .7em}}
 .card{{background:white;border:1px solid #d9dde3;border-radius:10px;padding:20px;margin:16px 0}}
 label{{display:block;margin:10px 0 4px}}input,select,button{{font:inherit;padding:8px}}
 input[type=text],input[type=password],select{{box-sizing:border-box;width:100%;max-width:680px}}
@@ -576,13 +633,21 @@ th,td{{padding:7px;border-bottom:1px solid #e2e5e9;text-align:left;vertical-alig
 .error{{background:#ffe6e6;color:#8b1111;padding:12px;border-radius:8px}}.muted{{color:#626b76}}
 .matched{{color:#176b34}}.ambiguous{{color:#8a5900}}.unmatched,.invalid{{color:#9b1c1c}}
 code{{font-size:13px}}.summary span{{display:inline-block;margin-right:18px}}
+.results-layout{{display:grid;grid-template-columns:minmax(760px,1fr) minmax(340px,38vw);grid-template-areas:"table map";gap:18px;align-items:start}}
+.results-table{{grid-area:table;min-width:0;overflow-x:auto}}.result-row{{height:220px}}
+.photo-cell{{width:266px}}.result-thumb{{display:block;width:266px;height:200px;object-fit:contain;background:#17191c;border-radius:5px}}
+.photo-name{{display:block;max-width:266px;margin-top:4px;overflow-wrap:anywhere}}
+.map-panel{{grid-area:map;position:sticky;top:12px;height:calc(100vh - 24px);min-height:420px}}
+#results-map{{height:100%;border:1px solid #cfd4da;border-radius:8px;background:#e8ebee}}
+#results-map-message{{position:absolute;z-index:500;top:12px;left:50%;transform:translateX(-50%);padding:8px 12px;background:#fff;border-radius:6px;box-shadow:0 1px 5px #0004;text-align:center}}
 .stacks{{display:grid;gap:18px}}.stack{{border:1px solid #d9dde3;border-radius:8px;padding:14px}}
 .members{{display:flex;gap:12px;overflow-x:auto;padding:8px 0}}.member{{min-width:230px;max-width:230px}}
 .member img{{display:block;width:230px;height:170px;object-fit:contain;background:#17191c;border-radius:6px}}
 .member form{{margin:0}}.member button{{margin-top:6px}}small{{display:block}}
+@media(max-width:1100px){{.results-layout{{display:flex;flex-direction:column}}.map-panel{{order:-1;width:100%;height:320px;min-height:0;margin-bottom:16px;position:sticky;top:0;z-index:20}}}}
 </style></head><body><main><h1>LRPL</h1>
 <p class="muted">Каталог: <code>{esc(state.photo_root)}</code> · JPEG: {len(state.photos)} · ошибок: {len(state.failures)}</p>
-{error}{content}</main></body></html>"""
+{error}{content}</main>{map_scripts}</body></html>"""
 
 
 def csrf(state):
@@ -622,6 +687,8 @@ def workspace(state, result_page=1):
 <table><thead><tr><th>Камера</th><th>Фото</th><th>Со временем</th><th>С timezone</th><th>Поправка</th></tr></thead>
 <tbody>{rows}</tbody></table><label>Максимальный разрыв трека, секунд</label>
 <input type="text" name="max_gap_seconds" value="900" required>
+<label>Местное время путешествия (смещение от UTC)</label>
+<input type="text" name="local_time_offset" value="{format_offset(state.local_time_offset_seconds)}" required>
 <button type="submit">Привязать фотографии</button></form></section>"""
     navigation = ""
     if state.results:
@@ -728,6 +795,7 @@ def results_table(state, result_page=1):
     rows = []
     for item in visible_results:
         position = item.get("position") or {}
+        local_time = format_local_time(item.get("normalized_at"), state.local_time_offset_seconds)
         if position:
             latitude = position["latitude"]
             longitude = position["longitude"]
@@ -741,7 +809,10 @@ def results_table(state, result_page=1):
             coordinate_cell = "—"
         file_cell = (
             f'<a href="/preview/{esc(item["id"])}" target="_blank" rel="noreferrer">'
-            f"<code>{esc(item['path'])}</code></a>"
+            f'<img class="result-thumb" src="/thumbnail/{esc(item["id"])}" '
+            f'alt="{esc(item["path"])}" loading="lazy" decoding="async"></a>'
+            f'<a class="photo-name" href="/preview/{esc(item["id"])}" target="_blank" '
+            f'rel="noreferrer"><code>{esc(item["path"])}</code></a>'
         )
         reason = item.get("reason") or position.get("method", "")
         day_value = item["logical_day"] if item["logical_day"] is not None else ""
@@ -757,13 +828,20 @@ def results_table(state, result_page=1):
 <input type="number" name="logical_day" min="1" max="99" value="{day_value}" required
  aria-label="Логический день для {esc(item["path"])}">
 <button type="submit">✓</button><small class="muted">{day_mark}</small></form>"""
+        map_attributes = (
+            f' data-latitude="{position["latitude"]:.8f}"'
+            f' data-longitude="{position["longitude"]:.8f}"'
+            if position
+            else ""
+        )
         rows.append(
-            f'<tr><td class="{esc(item["status"])}">{esc(item["status"])}</td>'
+            f'<tr class="result-row" data-photo-row data-filename="{esc(item["path"])}" '
+            f'data-local-time="{esc(local_time)}"{map_attributes}>'
+            f'<td class="photo-cell">{file_cell}</td>'
+            f'<td class="{esc(item["status"])}">{esc(item["status"])}</td>'
             f"<td><code>{esc(item.get('photo_key') or '—')}</code></td>"
             f"<td>{day_form}</td>"
-            f"<td>{file_cell}</td><td>{esc(item['camera'])}</td>"
-            f"<td>{esc(item['captured_at'] or '—')}</td>"
-            f"<td>{esc(item['normalized_at'] or '—')}</td><td>{esc(reason)}</td>"
+            f"<td>{esc(item['camera'])}</td><td>{esc(local_time)}</td><td>{esc(reason)}</td>"
             f"<td>{coordinate_cell}</td></tr>"
         )
     navigation = ""
@@ -778,8 +856,10 @@ def results_table(state, result_page=1):
     return f"""<section class="card" id="days"><h2>3. Логические дни и результат</h2>
 <p class="summary">{summary}</p><p>{esc(days) or "Нет предложенных дней"} · без дня: {unassigned} · подтверждено: {confirmed}</p>
 <form method="post" action="/confirm-days">{csrf(state)}<button type="submit">Подтвердить все предложенные дни</button></form>
-{navigation}<table><thead><tr><th>Статус</th><th>Ключ</th><th>День</th><th>Файл</th><th>Камера</th><th>EXIF</th><th>UTC</th><th>Причина</th><th>Координаты</th></tr></thead>
-<tbody>{"".join(rows)}</tbody></table>{navigation}</section>"""
+<div class="results-layout"><aside class="map-panel"><div id="results-map"></div>
+<div id="results-map-message">Определяем видимые фотографии…</div></aside>
+<div class="results-table">{navigation}<table><thead><tr><th>Фото</th><th>Статус</th><th>Ключ</th><th>День</th><th>Камера</th><th>Местное время</th><th>Причина</th><th>Координаты</th></tr></thead>
+<tbody>{"".join(rows)}</tbody></table>{navigation}</div></div></section>"""
 
 
 def handler_class(state, logger, events_path):
@@ -789,8 +869,9 @@ def handler_class(state, logger, events_path):
         def secure_headers(self, cache_control="no-store"):
             self.send_header(
                 "Content-Security-Policy",
-                "default-src 'none'; img-src 'self'; style-src 'unsafe-inline'; "
-                "form-action 'self'; base-uri 'none'",
+                "default-src 'none'; img-src 'self' data: https://tile.openstreetmap.org "
+                "https://unpkg.com; style-src 'unsafe-inline' https://unpkg.com; "
+                "script-src 'self' https://unpkg.com; form-action 'self'; base-uri 'none'",
             )
             self.send_header("X-Content-Type-Options", "nosniff")
             self.send_header("X-Frame-Options", "DENY")
@@ -814,6 +895,15 @@ def handler_class(state, logger, events_path):
             parsed = urlparse(self.path)
             if not self.valid_host():
                 self.send_error(404)
+                return
+            if parsed.path == "/assets/results-map.js":
+                content = RESULTS_MAP_JS.encode("utf-8")
+                self.send_response(200)
+                self.send_header("Content-Type", "text/javascript; charset=utf-8")
+                self.send_header("Content-Length", str(len(content)))
+                self.secure_headers("private, max-age=3600")
+                self.end_headers()
+                self.wfile.write(content)
                 return
             image_kind = next(
                 (kind for kind in ("thumbnail", "preview") if parsed.path.startswith(f"/{kind}/")),
@@ -895,7 +985,10 @@ def handler_class(state, logger, events_path):
                     max_gap = int(form.get("max_gap_seconds", [""])[0])
                     if not 0 < max_gap <= 86400:
                         raise ValueError("Разрыв должен быть от 1 до 86400 секунд.")
-                    counts = state.match(offsets, max_gap)
+                    local_time_offset = parse_offset(
+                        form.get("local_time_offset", [""])[0]
+                    )
+                    counts = state.match(offsets, max_gap, local_time_offset)
                     product_event(events_path, "photos_matched", **dict(counts))
                 elif path == "/set-day":
                     photo_id = form.get("photo_id", [""])[0]
