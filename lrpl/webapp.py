@@ -615,7 +615,7 @@ def page(state, result_page=1):
     )
     map_scripts = (
         '<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>'
-        '<script src="/assets/results-map.js?v=selection-1"></script>'
+        '<script src="/assets/results-map.js?v=selection-2"></script>'
         if state.results
         else ""
     )
@@ -637,6 +637,7 @@ code{{font-size:13px}}.summary span{{display:inline-block;margin-right:18px}}
 .results-table{{grid-area:table;min-width:0;overflow-x:auto}}.result-row{{height:220px}}
 .result-row{{cursor:pointer}}.result-row.selected-photo td{{background:#e5f0ff}}
 .result-row.selected-photo .result-thumb{{outline:3px solid #1769d2;outline-offset:2px}}
+.leaflet-tooltip.selected-photo-label{{border:2px solid #1769d2;background:#fff;color:#1455a8;font-weight:700;opacity:1}}
 .photo-cell{{width:266px}}.result-thumb{{display:block;width:266px;height:200px;object-fit:contain;background:#17191c;border-radius:5px}}
 .photo-name{{display:block;max-width:266px;margin-top:4px;overflow-wrap:anywhere}}
 .map-panel{{grid-area:map;position:sticky;top:12px;height:calc(100vh - 24px);min-height:420px}}

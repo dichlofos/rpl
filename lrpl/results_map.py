@@ -29,6 +29,11 @@ RESULTS_MAP_JS = r"""
       const active = candidate === row;
       marker.setRadius(active ? 11 : 7);
       marker.setStyle({ fillColor: active ? "#1769d2" : "#d62929", weight: active ? 3 : 2 });
+      const label = marker.getTooltip()?.getElement();
+      if (label) {
+        label.style.zIndex = active ? "1000" : "0";
+        label.classList.toggle("selected-photo-label", active);
+      }
       if (active) marker.bringToFront();
     }
   };
