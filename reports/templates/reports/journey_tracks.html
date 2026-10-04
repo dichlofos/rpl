@@ -1,0 +1,18 @@
+{% extends "base.html" %}
+{% block title %}Треки путешествия — RPL{% endblock %}
+{% block content %}
+<h1 class="h2">Треки: {{ report.name }}</h1>
+<p class="text-secondary">Отметьте нужные треки и задайте порядок. Остальные треки исходной группы в путешествие не включаются.</p>
+<form method="post">{% csrf_token %}
+{{ form.non_field_errors }}
+<table class="table"><thead><tr><th>Включить</th><th>Трек</th><th>Порядок</th></tr></thead><tbody>
+{% for entry in entries %}<tr>
+<td>{{ entry.selected }}{{ entry.selected.errors }}</td>
+<td><a href="{{ entry.track.get_absolute_url }}">{{ entry.track.name }}</a></td>
+<td>{{ entry.position }}{{ entry.position.errors }}</td>
+</tr>{% empty %}<tr><td colspan="3">Доступных треков нет.</td></tr>{% endfor %}
+</tbody></table>
+<button class="btn btn-primary" type="submit">Сохранить выбор</button>
+<a class="btn btn-outline-secondary" href="{% url 'journeys:detail' report.public_id %}">Отмена</a>
+</form>
+{% endblock %}

@@ -35,6 +35,8 @@ def with_primary_regions(queryset):
 
 
 def dashboard(request):
+    from reports.models import TravelReport
+
     context = {
         "tracks_count": Track.objects.filter(deleted_at__isnull=True).count(),
         "groups_count": TrackGroup.objects.count(),
@@ -45,6 +47,7 @@ def dashboard(request):
                 owner=request.user, deleted_at__isnull=True
             ).count(),
             my_groups_count=TrackGroup.objects.filter(owner=request.user).count(),
+            my_journeys_count=TravelReport.objects.filter(owner=request.user).count(),
         )
     return render(request, "tracks/dashboard.html", context)
 

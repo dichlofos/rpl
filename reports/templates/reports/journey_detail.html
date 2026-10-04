@@ -1,0 +1,19 @@
+{% extends "base.html" %}
+{% block title %}{{ report.name }} — RPL{% endblock %}
+{% block content %}
+<a href="{% url 'journeys:list' %}">← Путешествия</a>
+<h1 class="h2 mt-3">{{ report.name }}</h1>
+<p>{{ report.description|linebreaksbr }}</p>
+<p class="text-secondary">Владелец: {{ report.owner }} · Изменено: {{ report.updated_at }}</p>
+<p>Исходная группа:
+{% if report.track_group %}<a href="{{ report.track_group.get_absolute_url }}">{{ report.track_group.name }}</a>
+{% else %}удалена; выбранные треки сохранены{% endif %}</p>
+<div class="d-flex gap-2 mb-4">
+<a class="btn btn-outline-primary" href="{% url 'journeys:edit' report.public_id %}">Редактировать</a>
+<a class="btn btn-primary" href="{% url 'journeys:tracks' report.public_id %}">Выбрать треки и порядок</a>
+</div>
+<h2 class="h4">Треки путешествия</h2>
+<ol>{% for link in links %}<li class="mb-2"><a href="{{ link.track.get_absolute_url }}">{{ link.track.name }}</a>
+{% if link.track.deleted_at %}<span class="text-secondary">(архивный)</span>{% endif %}</li>
+{% empty %}<li class="text-secondary">Треки ещё не выбраны.</li>{% endfor %}</ol>
+{% endblock %}

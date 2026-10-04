@@ -142,3 +142,64 @@ class ReportTests(TestCase):
         self.assertEqual(item["timeline_status"], "empty")
         self.assertEqual(item["timed_points_count"], 0)
         self.assertEqual(item["timeline"]["segments"], [])
+
+    def test_journey_pages_are_private_and_owner_scoped(self):
+        detail = reverse("journeys:detail", args=[self.report.public_id])
+        self.assertEqual(self.client.get(reverse("journeys:list")).status_code, 302)
+        self.client.force_login(self.stranger)
+        self.assertNotContains(self.client.get(reverse("journeys:list")), "High Alay")
+        self.assertEqual(self.client.get(detail).status_code, 404)
+        self.assertEqual(self.client.post(
+            reverse("journeys:edit", args=[self.report.public_id]),
+            {"name": "Hijacked"},
+        ).status_code, 403)
+        self.assertEqual(self.client.post(
+            reverse("journeys:tracks", args=[self.report.public_id]), {},
+        ).status_code, 403)
+        self.client.force_login(self.owner)
+        self.assertContains(self.client.get(detail), "High Alay")
+        self.assertContains(self.client.get(reverse("journeys:list")), "High Alay")
+
+    def test_journey_creation_and_editing_preserve_source_group(self):
+        self.client.force_login(self.owner)
+        foreign_group = TrackGroup.objects.create(name="Private", owner=self.stranger)
+        response = self.client.post(reverse("journeys:create"), {
+            "name": "Invalid", "track_group": foreign_group.pk,
+        })
+        self.assertEqual(response.status_code, 200)
+        self.assertFalse(TravelReport.objects.filter(name="Invalid").exists())
+        response = self.client.post(reverse("journeys:create"), {
+            "name": "New trip", "description": "Test", "track_group": self.group.pk,
+        })
+        created = TravelReport.objects.get(name="New trip")
+        self.assertRedirects(response, reverse("journeys:tracks", args=[created.public_id]))
+        self.assertEqual(created.owner, self.owner)
+        self.client.post(reverse("journeys:edit", args=[created.public_id]), {
+            "name": "Renamed", "description": "Updated", "track_group": foreign_group.pk,
+        })
+        created.refresh_from_db()
+        self.assertEqual(created.name, "Renamed")
+        self.assertEqual(created.track_group, self.group)
+
+    def test_journey_track_selection_validates_order_and_survives_group_deletion(self):
+        self.client.force_login(self.owner)
+        url = reverse("journeys:tracks", args=[self.report.public_id])
+        payload = {
+            f"selected_{self.first.pk}": "on", f"position_{self.first.pk}": "20",
+            f"selected_{self.second.pk}": "on", f"position_{self.second.pk}": "10",
+            f"selected_{self.foreign.pk}": "on", f"position_{self.foreign.pk}": "1",
+        }
+        response = self.client.post(url, payload)
+        self.assertEqual(response.status_code, 302)
+        self.assertEqual(list(self.report.track_links.values_list("track_id", flat=True)),
+                         [self.second.pk, self.first.pk])
+        payload[f"position_{self.first.pk}"] = "10"
+        self.assertEqual(self.client.post(url, payload).status_code, 200)
+        self.assertEqual(self.report.track_links.count(), 2)
+        delete_group(self.owner, self.group.pk)
+        self.assertContains(self.client.get(url), self.first.name)
+        self.assertEqual(self.client.post(url, {
+            f"selected_{self.first.pk}": "on", f"position_{self.first.pk}": "1",
+        }).status_code, 302)
+        self.assertEqual(list(self.report.track_links.values_list("track_id", flat=True)),
+                         [self.first.pk])

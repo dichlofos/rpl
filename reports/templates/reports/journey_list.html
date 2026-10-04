@@ -1,0 +1,19 @@
+{% extends "base.html" %}
+{% block title %}Путешествия — RPL{% endblock %}
+{% block content %}
+<div class="d-flex justify-content-between align-items-center mb-4">
+  <h1 class="h2">Путешествия</h1>
+  <a class="btn btn-primary" href="{% url 'journeys:create' %}">Создать путешествие</a>
+</div>
+<p class="text-secondary">Путешествие содержит выбранные треки исходной группы и служит основой отчёта и обработки фотографий.</p>
+<div class="row g-3">
+{% for report in reports %}
+  <div class="col-md-6 col-lg-4"><a class="card h-100 text-decoration-none" href="{% url 'journeys:detail' report.public_id %}">
+    <div class="card-body"><h2 class="h5 text-body">{{ report.name }}</h2>
+    <p class="text-secondary">{{ report.description|default:"Без описания"|truncatechars:160 }}</p>
+    <div class="text-secondary">Треков: {{ report.track_count }} · {{ report.owner }}</div>
+    <div class="text-secondary">Группа: {{ report.track_group|default:"Удалена" }}</div></div>
+  </a></div>
+{% empty %}<p>Путешествий пока нет. Создайте путешествие и выберите треки из своей группы.</p>{% endfor %}
+</div>
+{% endblock %}

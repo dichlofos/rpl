@@ -5,7 +5,7 @@
 {% block content %}
 <div class="mb-4">
   <h1 class="h2 mb-1">Каталог маршрутов</h1>
-  <p class="text-secondary mb-0">GPX-треки, путевые точки и группы путешествий</p>
+  <p class="text-secondary mb-0">GPX-треки, путевые точки, группы треков и путешествия</p>
 </div>
 
 <section class="border rounded-3 p-3 p-md-4 mb-3">
@@ -45,6 +45,7 @@
     </div>
   </section>
 
+  <p><a href="{% url 'journeys:list' %}">Моих путешествий: {{ my_journeys_count }}</a></p>
   <div class="d-flex flex-wrap gap-2">
     <a class="btn btn-primary" href="{% url 'tracks:upload' %}">Загрузить GPX</a>
   </div>

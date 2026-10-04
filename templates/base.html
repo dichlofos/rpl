@@ -16,6 +16,7 @@
       <a class="navbar-brand fw-semibold" href="{% url 'tracks:dashboard' %}">RPL</a>
       <a class="nav-link text-light" href="{% url 'tracks:list' %}">Треки</a>
       <a class="nav-link text-light" href="{% url 'tracks:group-list' %}">Группы</a>
+      <a class="nav-link text-light" href="{% url 'journeys:list' %}">Путешествия</a>
       <span class="navbar-text d-none d-sm-inline me-auto">Route Planner</span>
       {% if user.is_authenticated %}
         <span class="navbar-text d-none d-md-inline">{{ user.username }}</span>
