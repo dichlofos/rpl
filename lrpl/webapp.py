@@ -636,6 +636,9 @@ code{{font-size:13px}}.summary span{{display:inline-block;margin-right:18px}}
 .results-layout{{display:grid;grid-template-columns:minmax(760px,1fr) minmax(340px,38vw);grid-template-areas:"table map";gap:18px;align-items:start}}
 .results-table{{grid-area:table;min-width:0;overflow-x:auto}}.result-row{{height:220px}}
 .result-row{{cursor:pointer}}.result-row.selected-photo td{{background:#e5f0ff}}
+.day-form{{display:grid;grid-template-columns:64px auto;gap:4px;align-items:start;margin:0}}
+.day-form input,.day-form button{{margin:0;padding:2px 6px}}
+.day-form small{{grid-column:1 / -1}}
 .result-row.selected-photo .result-thumb{{outline:3px solid #1769d2;outline-offset:2px}}
 .leaflet-tooltip.selected-photo-label{{border:2px solid #1769d2;background:#fff;color:#1455a8;font-weight:700;opacity:1}}
 .photo-cell{{width:266px}}.result-thumb{{display:block;width:266px;height:200px;object-fit:contain;background:#17191c;border-radius:5px}}
@@ -837,7 +840,7 @@ def results_table(state, result_page=1):
             day_mark = "предложен"
         else:
             day_mark = "не назначен"
-        day_form = f"""<form method="post" action="/set-day">{csrf(state)}
+        day_form = f"""<form class="day-form" method="post" action="/set-day">{csrf(state)}
 <input type="hidden" name="photo_id" value="{esc(item["id"])}">
 <input type="hidden" name="return_page" value="{result_page}">
 <input type="number" name="logical_day" min="1" max="99" value="{day_value}" required
