@@ -705,11 +705,16 @@ def workspace(state, result_page=1):
     calibration = f"""<section class="card"><h2>2. Калибровка времени</h2>
 <form method="post" action="/match">{csrf(state)}
 <table><thead><tr><th>Камера</th><th>Фото</th><th>Со временем</th><th>С timezone</th><th>Поправка</th></tr></thead>
-<tbody>{rows}</tbody></table><label>Максимальный разрыв трека, секунд</label>
+<tbody>{rows}</tbody></table>
+<p class="muted">Поправка часов камеры изменяет время съёмки, по которому фотографии сопоставляются с треками, и влияет на геопривязку.</p>
+<label>Максимальный разрыв трека, секунд</label>
 <input type="text" name="max_gap_seconds" value="900" required>
 <label>Местное время путешествия (смещение от UTC)</label>
-<input type="text" name="local_time_offset" value="{format_offset(state.local_time_offset_seconds)}" required>
-<button type="submit">Привязать фотографии</button></form></section>"""
+<input type="text" name="local_time_offset" value="{format_offset(state.local_time_offset_seconds)}" aria-describedby="local-time-help" required>
+<p class="muted" id="local-time-help">Местное время путешествия задаёт только отображение времени в результатах. Это смещение не меняет время для сопоставления с треками, геопозиции и назначенные дни.</p>
+<button type="submit">Привязать фотографии</button>
+<p class="muted">Кнопка применяет поправки часов камер, рассчитывает геопозиции по трекам и предлагает дни похода. Результаты сохраняются в Центре; вручную подтверждённые дни сохраняются при пересчёте.</p>
+</form></section>"""
     navigation = ""
     if state.results:
         navigation = (
