@@ -197,7 +197,7 @@ def test_state_suggests_offset_and_sends_normalized_utc(tmp_path):
     assert "18.07 12:05:00 +3" in rendered
     assert "12:05:00.000" not in rendered
     assert 'id="results-map"' in rendered
-    assert 'src="/assets/results-map.js?v=selection-2"' in rendered
+    assert 'src="/assets/results-map.js?v=preview-1"' in rendered
     assert 'data-latitude="50.00000000"' in rendered
     assert (
         'href="https://nakarte.me/#m=17/50.000000/80.000000&amp;l=O'

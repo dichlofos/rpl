@@ -1,5 +1,28 @@
 RESULTS_MAP_JS = r"""
 (() => {
+  const dialog = document.querySelector("#photo-preview-dialog");
+  if (dialog) {
+    const image = dialog.querySelector("img");
+    const caption = dialog.querySelector("#photo-preview-caption");
+    let opener = null;
+    document.addEventListener("click", event => {
+      const link = event.target.closest("[data-photo-preview]");
+      if (!link || event.ctrlKey || event.metaKey || event.shiftKey || event.altKey) return;
+      event.preventDefault();
+      opener = link;
+      image.src = link.href;
+      image.alt = link.dataset.filename;
+      caption.textContent = link.dataset.filename;
+      dialog.showModal();
+      document.body.classList.add("preview-open");
+    });
+    dialog.querySelector("button").addEventListener("click", () => dialog.close());
+    dialog.addEventListener("close", () => {
+      document.body.classList.remove("preview-open");
+      image.removeAttribute("src");
+      opener?.focus({ preventScroll: true });
+    });
+  }
   const element = document.querySelector("#results-map");
   if (!element) return;
   const message = document.querySelector("#results-map-message");
@@ -38,9 +61,8 @@ RESULTS_MAP_JS = r"""
     }
   };
   rows.forEach(row => {
-    row.addEventListener("click", event => {
+    row.addEventListener("click", () => {
       select(row);
-      if (event.target.closest(".result-thumb")) event.preventDefault();
     });
     row.addEventListener("keydown", event => {
       if (event.target !== row || !["Enter", " "].includes(event.key)) return;

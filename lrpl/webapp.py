@@ -615,7 +615,7 @@ def page(state, result_page=1):
     )
     map_scripts = (
         '<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>'
-        '<script src="/assets/results-map.js?v=selection-2"></script>'
+        '<script src="/assets/results-map.js?v=preview-1"></script>'
         if state.results
         else ""
     )
@@ -640,6 +640,12 @@ code{{font-size:13px}}.summary span{{display:inline-block;margin-right:18px}}
 .leaflet-tooltip.selected-photo-label{{border:2px solid #1769d2;background:#fff;color:#1455a8;font-weight:700;opacity:1}}
 .photo-cell{{width:266px}}.result-thumb{{display:block;width:266px;height:200px;object-fit:contain;background:#17191c;border-radius:5px}}
 .photo-name{{display:block;max-width:266px;margin-top:4px;overflow-wrap:anywhere}}
+body.preview-open{{overflow:hidden}}
+#photo-preview-dialog{{padding:16px;border:0;border-radius:8px;background:#17191c;color:white;max-width:95vw;max-height:95vh}}
+#photo-preview-dialog::backdrop{{background:#000a}}
+#photo-preview-dialog img{{display:block;max-width:90vw;max-height:80vh;object-fit:contain;margin:0 auto}}
+#photo-preview-caption{{margin:0 40px 12px 0;overflow-wrap:anywhere}}
+#photo-preview-dialog button{{position:absolute;right:8px;top:4px;margin:0;border:0;background:transparent;color:white;font-size:28px;cursor:pointer}}
 .map-panel{{grid-area:map;position:sticky;top:12px;height:calc(100vh - 24px);min-height:420px}}
 #results-map{{height:100%;border:1px solid #cfd4da;border-radius:8px;background:#e8ebee}}
 #results-map-message{{position:absolute;z-index:500;top:12px;left:50%;transform:translateX(-50%);padding:8px 12px;background:#fff;border-radius:6px;box-shadow:0 1px 5px #0004;text-align:center}}
@@ -650,7 +656,11 @@ code{{font-size:13px}}.summary span{{display:inline-block;margin-right:18px}}
 @media(max-width:1100px){{.results-layout{{display:flex;flex-direction:column}}.map-panel{{order:-1;width:100%;height:320px;min-height:0;margin-bottom:16px;position:sticky;top:0;z-index:20}}}}
 </style></head><body><main><h1>LRPL</h1>
 <p class="muted">Каталог: <code>{esc(state.photo_root)}</code> · JPEG: {len(state.photos)} · ошибок: {len(state.failures)}</p>
-{error}{content}</main>{map_scripts}</body></html>"""
+{error}{content}</main>
+<dialog id="photo-preview-dialog" aria-labelledby="photo-preview-caption">
+<button type="button" aria-label="Закрыть фото" autofocus>×</button>
+<p id="photo-preview-caption"></p><img alt=""></dialog>
+{map_scripts}</body></html>"""
 
 
 def csrf(state):
@@ -811,10 +821,12 @@ def results_table(state, result_page=1):
         else:
             coordinate_cell = "—"
         file_cell = (
-            f'<a href="/preview/{esc(item["id"])}" target="_blank" rel="noreferrer">'
+            f'<a href="/preview/{esc(item["id"])}" data-photo-preview '
+            f'data-filename="{esc(item["path"])}" target="_blank" rel="noreferrer">'
             f'<img class="result-thumb" src="/thumbnail/{esc(item["id"])}" '
             f'alt="{esc(item["path"])}" loading="lazy" decoding="async"></a>'
-            f'<a class="photo-name" href="/preview/{esc(item["id"])}" target="_blank" '
+            f'<a class="photo-name" href="/preview/{esc(item["id"])}" data-photo-preview '
+            f'data-filename="{esc(item["path"])}" target="_blank" '
             f'rel="noreferrer"><code>{esc(item["path"])}</code></a>'
         )
         reason = item.get("reason") or position.get("method", "")
