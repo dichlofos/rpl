@@ -18,11 +18,36 @@ RESULTS_MAP_JS = r"""
   const rows = [...document.querySelectorAll("[data-photo-row]")];
   const visible = new Set();
   const layer = L.layerGroup().addTo(map);
+  const markers = new Map();
+  let selected = null;
   let scheduled = false;
+
+  const select = row => {
+    selected = row;
+    rows.forEach(candidate => candidate.classList.toggle("selected-photo", candidate === row));
+    for (const [candidate, marker] of markers) {
+      const active = candidate === row;
+      marker.setRadius(active ? 11 : 7);
+      marker.setStyle({ fillColor: active ? "#1769d2" : "#d62929", weight: active ? 3 : 2 });
+      if (active) marker.bringToFront();
+    }
+  };
+  rows.forEach(row => {
+    row.addEventListener("click", event => {
+      select(row);
+      if (event.target.closest(".result-thumb")) event.preventDefault();
+    });
+    row.addEventListener("keydown", event => {
+      if (event.target !== row || !["Enter", " "].includes(event.key)) return;
+      event.preventDefault();
+      select(row);
+    });
+  });
 
   const update = () => {
     scheduled = false;
     layer.clearLayers();
+    markers.clear();
     const bounds = L.latLngBounds([]);
     let count = 0;
     for (const row of rows) {
@@ -45,9 +70,18 @@ RESULTS_MAP_JS = r"""
       time.textContent = row.dataset.localTime || "";
       popup.append(name, time);
       marker.bindPopup(popup).addTo(layer);
+      const label = document.createElement("span");
+      label.textContent = row.dataset.photoKey || row.dataset.filename;
+      marker.bindTooltip(label, { permanent: true, direction: "right", offset: [10, 0] });
+      marker.on("click", () => {
+        select(row);
+        row.focus({ preventScroll: true });
+      });
+      markers.set(row, marker);
       bounds.extend(point);
       count += 1;
     }
+    if (selected) select(selected);
     message.hidden = count > 0;
     message.textContent = "У видимых строк нет вычисленных координат.";
     if (count === 1) map.setView(bounds.getCenter(), 17, { animate: false });

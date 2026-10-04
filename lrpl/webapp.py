@@ -615,7 +615,7 @@ def page(state, result_page=1):
     )
     map_scripts = (
         '<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>'
-        '<script src="/assets/results-map.js"></script>'
+        '<script src="/assets/results-map.js?v=selection-1"></script>'
         if state.results
         else ""
     )
@@ -635,6 +635,8 @@ th,td{{padding:7px;border-bottom:1px solid #e2e5e9;text-align:left;vertical-alig
 code{{font-size:13px}}.summary span{{display:inline-block;margin-right:18px}}
 .results-layout{{display:grid;grid-template-columns:minmax(760px,1fr) minmax(340px,38vw);grid-template-areas:"table map";gap:18px;align-items:start}}
 .results-table{{grid-area:table;min-width:0;overflow-x:auto}}.result-row{{height:220px}}
+.result-row{{cursor:pointer}}.result-row.selected-photo td{{background:#e5f0ff}}
+.result-row.selected-photo .result-thumb{{outline:3px solid #1769d2;outline-offset:2px}}
 .photo-cell{{width:266px}}.result-thumb{{display:block;width:266px;height:200px;object-fit:contain;background:#17191c;border-radius:5px}}
 .photo-name{{display:block;max-width:266px;margin-top:4px;overflow-wrap:anywhere}}
 .map-panel{{grid-area:map;position:sticky;top:12px;height:calc(100vh - 24px);min-height:420px}}
@@ -835,7 +837,9 @@ def results_table(state, result_page=1):
             else ""
         )
         rows.append(
-            f'<tr class="result-row" data-photo-row data-filename="{esc(item["path"])}" '
+            f'<tr class="result-row" tabindex="0" data-photo-row '
+            f'data-photo-key="{esc(item.get("photo_key") or "")}" '
+            f'data-filename="{esc(item["path"])}" '
             f'data-local-time="{esc(local_time)}"{map_attributes}>'
             f'<td class="photo-cell">{file_cell}</td>'
             f'<td class="{esc(item["status"])}">{esc(item["status"])}</td>'
