@@ -633,12 +633,16 @@ th,td{{padding:7px;border-bottom:1px solid #e2e5e9;text-align:left;vertical-alig
 .error{{background:#ffe6e6;color:#8b1111;padding:12px;border-radius:8px}}.muted{{color:#626b76}}
 .matched{{color:#176b34}}.ambiguous{{color:#8a5900}}.unmatched,.invalid{{color:#9b1c1c}}
 code{{font-size:13px}}.summary span{{display:inline-block;margin-right:18px}}
-.results-layout{{display:grid;grid-template-columns:minmax(760px,1fr) minmax(340px,38vw);grid-template-areas:"table map";gap:18px;align-items:start}}
+.results-layout{{display:grid;grid-template-columns:minmax(520px,.9fr) minmax(340px,1.1fr);grid-template-areas:"table map";gap:18px;align-items:start}}
 .results-table{{grid-area:table;min-width:0;overflow-x:auto}}.result-row{{height:220px}}
 .result-row{{cursor:pointer}}.result-row.selected-photo td{{background:#e5f0ff}}
 .day-form{{display:grid;grid-template-columns:64px auto;gap:4px;align-items:start;margin:0}}
 .day-form input,.day-form button{{margin:0;padding:2px 6px}}
 .day-form small{{grid-column:1 / -1}}
+.day-confirmed{{color:#176b34;font-weight:600}}
+.photo-details{{display:flex;flex-direction:column;gap:6px;min-height:200px;overflow-wrap:anywhere}}
+.photo-details .day-control{{margin-top:auto}}
+.day-control .day-form{{width:max-content}}
 .result-row.selected-photo .result-thumb{{outline:3px solid #1769d2;outline-offset:2px}}
 .leaflet-tooltip.selected-photo-label{{border:2px solid #1769d2;background:#fff;color:#1455a8;font-weight:700;opacity:1}}
 .photo-cell{{width:266px}}.result-thumb{{display:block;width:266px;height:200px;object-fit:contain;background:#17191c;border-radius:5px}}
@@ -840,12 +844,13 @@ def results_table(state, result_page=1):
             day_mark = "предложен"
         else:
             day_mark = "не назначен"
+        day_mark_class = "day-confirmed" if item["day_confirmed"] else "muted"
         day_form = f"""<form class="day-form" method="post" action="/set-day">{csrf(state)}
 <input type="hidden" name="photo_id" value="{esc(item["id"])}">
 <input type="hidden" name="return_page" value="{result_page}">
 <input type="number" name="logical_day" min="1" max="99" value="{day_value}" required
  aria-label="Логический день для {esc(item["path"])}">
-<button type="submit">✓</button><small class="muted">{day_mark}</small></form>"""
+<button type="submit">✓</button><small class="{day_mark_class}">{day_mark}</small></form>"""
         map_attributes = (
             f' data-latitude="{position["latitude"]:.8f}"'
             f' data-longitude="{position["longitude"]:.8f}"'
@@ -858,11 +863,15 @@ def results_table(state, result_page=1):
             f'data-filename="{esc(item["path"])}" '
             f'data-local-time="{esc(local_time)}"{map_attributes}>'
             f'<td class="photo-cell">{file_cell}</td>'
-            f'<td class="{esc(item["status"])}">{esc(item["status"])}</td>'
-            f"<td><code>{esc(item.get('photo_key') or '—')}</code></td>"
-            f"<td>{day_form}</td>"
-            f"<td>{esc(item['camera'])}</td><td>{esc(local_time)}</td><td>{esc(reason)}</td>"
-            f"<td>{coordinate_cell}</td></tr>"
+            f'<td><div class="photo-details">'
+            f"<code>{esc(item.get('photo_key') or '—')}</code>"
+            f"<div>{esc(local_time)}</div>"
+            f'<small class="muted">{esc(item["camera"])}</small>'
+            f'<small><span class="{esc(item["status"])}">{esc(item["status"])}</span>'
+            f' · <span class="muted">{esc(reason)}</span></small>'
+            f"<div>{coordinate_cell}</div>"
+            f'<div class="day-control"><small>День</small>{day_form}</div>'
+            f"</div></td></tr>"
         )
     navigation = ""
     if total_pages > 1:
@@ -878,7 +887,7 @@ def results_table(state, result_page=1):
 <form method="post" action="/confirm-days">{csrf(state)}<button type="submit">Подтвердить все предложенные дни</button></form>
 <div class="results-layout"><aside class="map-panel"><div id="results-map"></div>
 <div id="results-map-message">Определяем видимые фотографии…</div></aside>
-<div class="results-table">{navigation}<table><thead><tr><th>Фото</th><th>Статус</th><th>Ключ</th><th>День</th><th>Камера</th><th>Местное время</th><th>Причина</th><th>Координаты</th></tr></thead>
+<div class="results-table">{navigation}<table><thead><tr><th>Фото</th><th>Сведения и день</th></tr></thead>
 <tbody>{"".join(rows)}</tbody></table>{navigation}</div></div></section>"""
 
 
