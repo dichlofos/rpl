@@ -645,7 +645,7 @@ body.preview-open{{overflow:hidden}}
 #photo-preview-dialog::backdrop{{background:#000a}}
 #photo-preview-dialog img{{display:block;max-width:90vw;max-height:80vh;object-fit:contain;margin:0 auto}}
 #photo-preview-caption{{margin:0 40px 12px 0;overflow-wrap:anywhere}}
-#photo-preview-dialog button{{position:absolute;right:8px;top:4px;margin:0;border:0;background:transparent;color:white;font-size:28px;cursor:pointer}}
+#photo-preview-dialog button{{position:absolute;right:8px;top:0;margin:0;border:0;background:transparent;color:white;font-size:28px;cursor:pointer}}
 .map-panel{{grid-area:map;position:sticky;top:12px;height:calc(100vh - 24px);min-height:420px}}
 #results-map{{height:100%;border:1px solid #cfd4da;border-radius:8px;background:#e8ebee}}
 #results-map-message{{position:absolute;z-index:500;top:12px;left:50%;transform:translateX(-50%);padding:8px 12px;background:#fff;border-radius:6px;box-shadow:0 1px 5px #0004;text-align:center}}
